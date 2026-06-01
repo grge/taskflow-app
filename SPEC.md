@@ -1,8 +1,9 @@
 # TaskFlow App — Technical Specification
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Date:** 2026-06-02  
-**Status:** Design Complete, Ready for Implementation
+**Status:** Design Complete, Ready for Implementation  
+**Changelog:** Updated grid view (starts with Today), 15-min snap grid, overlapping blocks (stagger), improved urgency/duration controls
 
 ---
 
@@ -64,11 +65,12 @@ enum UrgencyBucket {
 
 interface ScheduledBlock {
   id: string;                    // UUID
-  dayIndex: number;              // 0 = Monday, 1 = Tuesday, etc.
+  dayOffset: number;             // 0 = today, 1 = tomorrow, etc. (relative to current date)
   startMinutes: number;          // Minutes from midnight (e.g., 540 = 9:00am)
   durationMinutes: number;       // Length of this block
   partIndex?: number;            // For multi-day splits (1/2, 2/2)
   totalParts?: number;
+  zIndex?: number;               // For overlapping blocks (higher = on top)
 }
 
 interface TimeSession {
@@ -175,9 +177,10 @@ const STORAGE_KEYS = {
 
 **Structure:**
 - Grid: Days (rows) × Time slots (columns)
-- Days: Mon-Sun (filtered by work schedule)
+- Days: Starts with **Today**, then shows next N work days (e.g., if work schedule is M/W/F, grid shows Today, then next M, W, F, M, W, F...)
 - Time slots: Hourly columns within work hours
-- Cells: 1 hour each (or configurable: 30min, 15min)
+- Cells: 1 hour each (visual grid lines)
+- **Snap grid**: 15-minute resolution (invisible snap points for precise scheduling)
 
 **Elements:**
 - **Task blocks**: Rectangles spanning time cells
@@ -189,11 +192,18 @@ const STORAGE_KEYS = {
 - **Current time indicator**: Red vertical line (if viewing today)
 
 **Interactions:**
-- **Drag from task list → matrix**: Schedule task
-- **Drag within matrix**: Reschedule (change day/time)
+- **Drag from task list → matrix**: Schedule task (snaps to 15-min grid)
+- **Drag within matrix**: Reschedule (change day/time, snaps to 15-min grid)
 - **Drag from matrix → task list**: Unschedule
 - **Click block**: Highlight (no separate detail panel)
-- **Resize handles**: Adjust duration (stretch block edges)
+- **Resize handles**: Adjust duration (stretch block edges, snaps to 15-min increments)
+
+**Overlapping blocks:**
+- When tasks overlap in time, blocks **stack with stagger**
+- Later-placed blocks appear on top (z-index)
+- Slight vertical offset (8-12px per layer) so all block edges remain visible
+- Uniform block height maintained (no swim lanes)
+- Allows intentional double-booking without breaking grid structure
 
 **Auto-split behavior:**
 - When dragging, if task duration exceeds remaining day hours:
@@ -223,7 +233,8 @@ const STORAGE_KEYS = {
 
 **Interactions:**
 - **Click description**: Inline edit mode
-- **Click urgency/duration**: Dropdown picker
+- **Click urgency**: `< >` arrow buttons to cycle through buckets (hours → today → tomorrow → days → week)
+- **Click duration**: Slider control (0-240 min range, snap points at 15/30/45/60/90/120/150/180 minutes)
 - **Drag `[■]` block**: Schedule to matrix
 - **Play button**: Start timer
 - **Pause/Stop**: Pause or complete timer
