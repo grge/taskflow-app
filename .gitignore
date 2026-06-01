@@ -1,0 +1,24 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node (if we add npm later)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build outputs (future)
+dist/
+build/
+
+# Logs
+*.log
+
+# Local data (user's tasks, don't commit)
+localstorage-backup.json
