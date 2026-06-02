@@ -65,7 +65,7 @@ enum UrgencyBucket {
 
 interface ScheduledBlock {
   id: string;                    // UUID
-  dayOffset: number;             // 0 = today, 1 = tomorrow, etc. (relative to current date)
+  date: string;                  // ISO date string (e.g., "2026-06-04") - absolute, not relative
   startMinutes: number;          // Minutes from midnight (e.g., 540 = 9:00am)
   durationMinutes: number;       // Length of this block
   partIndex?: number;            // For multi-day splits (1/2, 2/2)
@@ -340,13 +340,13 @@ function autoAllocate(tasks: Task[], schedule: WorkSchedule, stats: EstimationSt
   });
   
   // 3. Pack into earliest available slots
-  let currentDay = 0;
-  let currentMinute = schedule.days[currentDay].startMinutes;
+  let currentDate = new Date(); // Start from today
+  let currentMinute = getCurrentMinute(); // Current time of day
   
   for (const task of sorted) {
-    const result = scheduleTask(task, currentDay, currentMinute, schedule);
+    const result = scheduleTask(task, currentDate, currentMinute, schedule);
     blocks.push(...result.blocks);
-    currentDay = result.nextDay;
+    currentDate = result.nextDate;
     currentMinute = result.nextMinute;
   }
   
@@ -370,25 +370,38 @@ function getMultiplier(urgency: UrgencyBucket, stats: EstimationStats): number {
 ```typescript
 function scheduleTask(
   task: Task,
-  startDay: number,
+  startDate: Date,
   startMinute: number,
   schedule: WorkSchedule
-): { blocks: ScheduledBlock[], nextDay: number, nextMinute: number } {
+): { blocks: ScheduledBlock[], nextDate: Date, nextMinute: number } {
   
   const blocks: ScheduledBlock[] = [];
   let remainingMinutes = task.adjustedMinutes || task.estimatedMinutes;
-  let currentDay = startDay;
+  let currentDate = new Date(startDate);
   let currentMinute = startMinute;
   let partIndex = 1;
   
   while (remainingMinutes > 0) {
-    const daySchedule = schedule.days[currentDay];
+    const dayOfWeek = currentDate.getDay();
+    const daySchedule = schedule.days.find(d => d.dayOfWeek === dayOfWeek && d.enabled);
+    
+    if (!daySchedule) {
+      // Not a work day, move to next day
+      currentDate.setDate(currentDate.getDate() + 1);
+      currentMinute = 0;
+      continue;
+    }
+    
+    if (currentMinute < daySchedule.startMinutes) {
+      currentMinute = daySchedule.startMinutes;
+    }
+    
     const availableMinutes = daySchedule.endMinutes - currentMinute;
     
     if (availableMinutes <= 0) {
       // Move to next work day
-      currentDay = getNextWorkDay(currentDay, schedule);
-      currentMinute = schedule.days[currentDay].startMinutes;
+      currentDate.setDate(currentDate.getDate() + 1);
+      currentMinute = 0;
       continue;
     }
     
@@ -396,7 +409,7 @@ function scheduleTask(
     
     blocks.push({
       id: generateUUID(),
-      dayIndex: currentDay,
+      date: currentDate.toISOString().split('T')[0], // "2026-06-04"
       startMinutes: currentMinute,
       durationMinutes: blockMinutes,
       partIndex: blocks.length > 0 ? partIndex : undefined,
@@ -415,7 +428,7 @@ function scheduleTask(
   
   return {
     blocks,
-    nextDay: currentDay,
+    nextDate: currentDate,
     nextMinute: currentMinute
   };
 }
@@ -818,7 +831,7 @@ python -m http.server 8000
   "scheduledBlocks": [
     {
       "id": "660e8400-e29b-41d4-a716-446655440001",
-      "dayIndex": 1,
+      "date": "2026-06-04",
       "startMinutes": 600,
       "durationMinutes": 60
     }
