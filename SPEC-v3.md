@@ -34,7 +34,7 @@ Every task has:
 
 ### Urgency Profiles (Presets)
 
-Presets define urgency shapes that map to common task types:
+**Presets are parameter templates** that define the shape of a task's urgency envelope. When a task is created, the preset parameters are instantiated into a time-dependent function P_i(t) where t=0 is the task's creation time.
 
 **Whenever**
 - Background: Low
@@ -70,6 +70,8 @@ Presets define urgency shapes that map to common task types:
 - Rise: Very slow but persistent
 - Peak: Low-Medium
 - Use case: Small tasks that become irritating over time
+
+**Note:** Two tasks with the same preset but different creation times will have envelope functions that are shifted in calendar time. The preset defines the *shape*, each task instance has its own timeline.
 
 ### Importance Levels
 
@@ -127,14 +129,15 @@ type UrgencyProfile = "whenever" | "soon" | "by-date" | "critical" | "chore";
 type Importance = "low" | "medium" | "high";
 
 interface EnvelopeParams {
-  background: number;       // b_i: Initial/baseline problemness (0-1)
-  graceHours: number;       // a_i: Delay before problemness starts rising
-  riseHours: number;        // r_i: Time to reach peak after grace period
-  peakProblemness: number;  // m_i: Maximum problemness (0-1, scaled by importance)
+  background: number;       // b: Initial/baseline problemness (0-1)
+  graceHours: number;       // a: Delay before problemness starts rising
+  riseHours: number;        // r: Time to reach peak after grace period
+  peakProblemness: number;  // m: Maximum problemness (0-1, after importance scaling)
 }
 
-// Preset envelope definitions
-const URGENCY_ENVELOPES: Record<UrgencyProfile, Omit<EnvelopeParams, 'peakProblemness'>> = {
+// Preset envelope parameter templates (timeless shapes)
+// These are instantiated per-task into P_i(t) functions where t=0 is task.createdAt
+const URGENCY_ENVELOPES: Record<UrgencyProfile, EnvelopeParams> = {
   whenever: { background: 0.05, graceHours: 72, riseHours: 168, peakProblemness: 0.4 },
   soon: { background: 0.1, graceHours: 8, riseHours: 24, peakProblemness: 0.6 },
   "by-date": { background: 0.05, graceHours: 48, riseHours: 24, peakProblemness: 0.9 },
@@ -193,11 +196,35 @@ interface DaySchedule {
 
 ## 4. Problemness Function
 
-### Mathematical Definition
+### 4.1 Envelope Instantiation
+
+**Key concept:** Envelope presets are *parameter templates*, not functions.
+
+When a task is created:
+1. The preset parameters (background, grace, rise, peak) are copied from the preset
+2. The peak is scaled by the importance multiplier
+3. These parameters define a function **P_i(t)** specific to task *i*
+4. **t = 0** is anchored at `task.createdAt` (the task's "birth time" in calendar time)
+5. **t** is measured in hours elapsed since `task.createdAt`
+
+**Example:** Two tasks created 6 hours apart:
+- Task A created at 9:00am with "Critical" preset
+- Task B created at 3:00pm with "Critical" preset
+
+Both use the same preset shape, but:
+- At 5:00pm calendar time: Task A has t=8h (peak), Task B has t=2h (still rising)
+- Their P(t) curves have the same *shape* but are shifted in *calendar time*
+
+**Calendar time vs Task time:**
+- Problemness P_i(t) grows in **calendar time** (24/7, includes nights/weekends)
+- Task durations consume **work time** (skips non-work periods)
+- This distinction is critical for the scheduler
+
+### 4.2 Mathematical Definition
 
 **Envelope:** Delayed ramp-to-plateau (piecewise linear, monotonically increasing)
 
-For a task with envelope params `(b, a, r, m)`, the problemness at time `t` (hours since creation) is:
+For a task with envelope params `(b, a, r, m)`, the problemness P_i(t) at task-relative time `t` (hours since task.createdAt) is:
 
 ```typescript
 function calculateProblemness(task: Task, currentTime: Date): number {
@@ -211,6 +238,7 @@ function calculateProblemness(task: Task, currentTime: Date): number {
     peakProblemness: profile.peakProblemness * importance
   };
   
+  // t = 0 at task.createdAt, measured in calendar time (not work time)
   const hoursElapsed = (currentTime.getTime() - task.createdAt.getTime()) / (1000 * 60 * 60);
   
   // Phase 1: Background (flat)
@@ -230,7 +258,7 @@ function calculateProblemness(task: Task, currentTime: Date): number {
 }
 ```
 
-### Accumulated Problemness (Integral)
+### 4.3 Accumulated Problemness (Integral)
 
 The scheduler minimizes accumulated problemness until task *completion*:
 
@@ -260,20 +288,38 @@ function accumulatedProblemness(task: Task, completionTime: Date): number {
 }
 ```
 
-### Visual Representation
+### 4.4 Visual Representation
+
+**Single task envelope (task-relative time):**
 
 ```
-Problemness
+Problemness P_i(t)
      ↑
   m  |              __________ (plateau)
      |             /
      |            /
      |           /
   b  |__________/              (background)
-   0 |______|_______|__________→ Time (hours)
+   0 |______|_______|__________→ t (hours since task.createdAt)
             a     a+r
          (grace) (rise)
 ```
+
+**Multiple tasks with same preset in calendar time:**
+
+```
+Problemness
+     ↑
+  1.0|           _____ Task A (created 9am)
+     |          /
+     |         /    _____ Task B (created 3pm)
+ 0.6 |________/____/
+     |
+   0 |_________________________→ Calendar time
+       9am  11am  1pm  3pm  5pm
+```
+
+Both tasks use "Critical" preset (same shape), but Task B's envelope is shifted 6 hours later in calendar time.
 
 ---
 
@@ -833,19 +879,31 @@ taskflow-app/
 
 ### Calculated values at different times
 
+**Task created at 9:00am on 2026-06-02**
+
 Profile: **Critical** (background: 0.6, grace: 0, rise: 8h, peak: 1.0)  
 Importance: **High** (×1.5 multiplier → peak: 1.5, but capped at 1.0)
 
 ```
-t = 0h (9:00am):   P = 0.60  (background, already problematic)
-t = 2h (11:00am):  P = 0.70  (rising)
-t = 4h (1:00pm):   P = 0.80  (rising)
-t = 6h (3:00pm):   P = 0.90  (rising)
-t = 8h (5:00pm):   P = 1.00  (peak)
-t = 10h (7:00pm):  P = 1.00  (plateau)
+Calendar time     | Task time t | P_i(t) | Label
+9:00am (created)  | t = 0h      | 0.60   | 🚨 OH CRAP (background)
+11:00am           | t = 2h      | 0.70   | 🚨 OH CRAP (rising)
+1:00pm            | t = 4h      | 0.80   | 🚨 OH CRAP (rising)
+3:00pm            | t = 6h      | 0.90   | 💀 I am so sorry (rising)
+5:00pm            | t = 8h      | 1.00   | 💀 I am so sorry (peak)
+7:00pm            | t = 10h     | 1.00   | 💀 I am so sorry (plateau)
 ```
 
-Emoji progression: 🚨 OH CRAP → 💀 I am so sorry
+**If a second task with the same preset is created at 3:00pm:**
+
+```
+Calendar time     | Task A (t)  | P_A(t) | Task B (t)  | P_B(t)
+3:00pm            | t = 6h      | 0.90   | t = 0h      | 0.60
+5:00pm            | t = 8h      | 1.00   | t = 2h      | 0.70
+7:00pm            | t = 10h     | 1.00   | t = 4h      | 0.80
+```
+
+Same preset shape, different calendar-time trajectories.
 
 ---
 
