@@ -8,9 +8,8 @@ Thumbs.db
 *.swp
 *.swo
 
-# Node (if we add npm later)
+# Node
 node_modules/
-package-lock.json
 yarn.lock
 
 # Build outputs (future)
