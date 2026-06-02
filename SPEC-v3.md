@@ -12,10 +12,9 @@ TaskFlow is a visual task scheduling app built on a novel urgency model: **every
 ### Key Innovation
 
 Tasks have **urgency envelopes** — continuous functions that rise over time, capturing:
-- Background problemness (tasks may start already problematic)
 - Grace period before urgency rises
 - Rise rate (how quickly urgency escalates)
-- Peak problemness (maximum urgency)
+- Peak problemness (maximum urgency, determined by importance)
 
 The scheduler minimizes **total accumulated problemness until task completion** by optimizing the sequence of work.
 
@@ -29,67 +28,64 @@ Every task has:
 
 1. **Description** (text)
 2. **Estimated Duration** (minutes)
-3. **Urgency Profile** (preset: "Whenever", "Soon", "Important by Date", "Critical", "Nagging Chore")
-4. **Importance** (Low/Medium/High — scales peak problemness)
+3. **Urgency Profile** (preset: "Next Couple Hours", "COB Today", "COB Tomorrow", "Few Days", "End of Week", "Whenever")
+4. **Importance** (Low/Medium/High — directly sets peak problemness)
 
 ### Urgency Profiles (Presets)
 
 **Presets are parameter templates** that define the shape of a task's urgency envelope. When a task is created, the preset parameters are instantiated into a time-dependent function P_i(t) where t=0 is the task's creation time.
 
-**Whenever**
-- Background: Low
-- Grace period: Long (days)
-- Rise: Slow
-- Peak: Low-Medium
-- Use case: Tasks that should be done eventually but aren't urgent
-
-**Soon**
-- Background: Low
-- Grace period: Moderate (hours-day)
-- Rise: Moderate
-- Peak: Medium
-- Use case: Near-future tasks with soft deadlines
-
-**Important by Date**
-- Background: Low
-- Grace period: Until near deadline
-- Rise: Steep
-- Peak: High
-- Use case: Tasks with meaningful due dates
-
-**Critical**
-- Background: High (already problematic)
-- Grace period: Short or none
-- Rise: Steep
-- Peak: High
-- Use case: Tasks that are already costly to leave unfinished
-
-**Nagging Chore**
-- Background: Low
+**Next Couple Hours**
 - Grace period: None
-- Rise: Very slow but persistent
-- Peak: Low-Medium
-- Use case: Small tasks that become irritating over time
+- Rise: 2 hours to peak
+- Use case: Tasks that need to be done immediately or within the next few hours
+
+**COB Today**
+- Grace period: None
+- Rise: Hours from creation to 17:00 today — but if the task is created after 17:00, the deadline shifts to 17:00 the next workday (computed once at task creation)
+- Use case: Tasks due by end of business today
+
+**COB Tomorrow**
+- Grace period: None
+- Rise: Hours from creation to 17:00 the next workday — but if created after 17:00, the deadline shifts to 17:00 the workday after that (computed once at task creation)
+- Use case: Tasks due by end of business tomorrow
+
+**Few Days**
+- Grace period: None
+- Rise: 72 hours to peak
+- Use case: Tasks that should be done within the next few days
+
+**End of Week**
+- Grace period: None
+- Rise: Hours from creation to Friday 17:00 of the current week (computed once at task creation)
+- Use case: Tasks due by end of the current working week
+
+**Whenever**
+- Grace period: 168 hours (one week)
+- Rise: 168 hours to peak after grace period
+- Use case: Tasks that should be done eventually but aren't urgent
 
 **Note:** Two tasks with the same preset but different creation times will have envelope functions that are shifted in calendar time. The preset defines the *shape*, each task instance has its own timeline.
 
+**Deadline-anchored presets:** `cob-today`, `cob-tomorrow`, and `end-of-week` have `riseHours` that is **dynamically computed** at task creation time — the number of hours from `createdAt` to the relevant deadline. This value is calculated once and stored as a concrete number in the task's `EnvelopeParams`. It is not recalculated later.
+
 ### Importance Levels
 
-Importance **scales** the peak problemness:
+Importance **directly sets** the peak problemness (`m` parameter of the envelope):
 
-- **Low (×0.5)**: Annoying but not critical
-- **Medium (×1.0)**: Standard importance
-- **High (×1.5)**: Critical, major consequences
+- **Low**: peak = 0.4 (annoying but not critical)
+- **Medium**: peak = 0.7 (standard importance)
+- **High**: peak = 1.0 (critical, major consequences)
 
-Combined with profile peak, determines maximum problemness.
+There is no multiplier. Importance *is* the peak.
 
 ### Combined Example
 
 "Respond to client email" with:
-- Urgency: **Critical** (high background, steep rise)
-- Importance: **High** (×1.5 multiplier)
+- Urgency: **Next Couple Hours** (no grace, 2h rise)
+- Importance: **High** (peak = 1.0)
 
-Result: Starts already problematic, urgency rises steeply, reaches very high peak.
+Result: Urgency rises immediately, reaching maximum problemness after 2 hours.
 
 ---
 
@@ -118,38 +114,122 @@ interface Task {
   
   // Time tracking
   timeSessions: TimeSession[];
-  totalActualMinutes?: number;
+  // Note: actual minutes worked are derived from timeSessions, not stored separately
   
   // State
   isCompleted: boolean;
   isDeleted: boolean;
 }
 
-type UrgencyProfile = "whenever" | "soon" | "by-date" | "critical" | "chore";
+type UrgencyProfile =
+  | "next-couple-hours"
+  | "cob-today"
+  | "cob-tomorrow"
+  | "few-days"
+  | "end-of-week"
+  | "whenever";
+
 type Importance = "low" | "medium" | "high";
 
 interface EnvelopeParams {
   background: number;       // b: Initial/baseline problemness (0-1)
   graceHours: number;       // a: Delay before problemness starts rising
   riseHours: number;        // r: Time to reach peak after grace period
-  peakProblemness: number;  // m: Maximum problemness (0-1, after importance scaling)
+  peakProblemness: number;  // m: Maximum problemness (0-1), set directly by importance
 }
 
-// Preset envelope parameter templates (timeless shapes)
-// These are instantiated per-task into P_i(t) functions where t=0 is task.createdAt
-const URGENCY_ENVELOPES: Record<UrgencyProfile, EnvelopeParams> = {
-  whenever: { background: 0.05, graceHours: 72, riseHours: 168, peakProblemness: 0.4 },
-  soon: { background: 0.1, graceHours: 8, riseHours: 24, peakProblemness: 0.6 },
-  "by-date": { background: 0.05, graceHours: 48, riseHours: 24, peakProblemness: 0.9 },
-  critical: { background: 0.6, graceHours: 0, riseHours: 8, peakProblemness: 1.0 },
-  chore: { background: 0.1, graceHours: 0, riseHours: 240, peakProblemness: 0.4 }
+// Importance directly maps to peakProblemness (no multiplier)
+const IMPORTANCE_PEAKS: Record<Importance, number> = {
+  low: 0.4,
+  medium: 0.7,
+  high: 1.0
 };
 
-const IMPORTANCE_MULTIPLIERS: Record<Importance, number> = {
-  low: 0.5,
-  medium: 1.0,
-  high: 1.5
+// Preset envelope parameter templates (timeless shapes).
+// background is 0 for all presets — it is only relevant for custom envelopes.
+// peakProblemness is 0 here as a placeholder; the actual peak comes from IMPORTANCE_PEAKS
+// and is written into the task's EnvelopeParams at creation time.
+// For cob-today, cob-tomorrow, and end-of-week the riseHours is 0 here as a placeholder;
+// use computeRiseHours(profile, createdAt) at task creation to get the concrete value.
+const URGENCY_ENVELOPES: Record<UrgencyProfile, Pick<EnvelopeParams, "graceHours" | "riseHours">> = {
+  "next-couple-hours": { graceHours: 0,   riseHours: 2   },
+  "cob-today":         { graceHours: 0,   riseHours: 0   }, // riseHours computed at creation
+  "cob-tomorrow":      { graceHours: 0,   riseHours: 0   }, // riseHours computed at creation
+  "few-days":          { graceHours: 0,   riseHours: 72  },
+  "end-of-week":       { graceHours: 0,   riseHours: 0   }, // riseHours computed at creation
+  "whenever":          { graceHours: 168, riseHours: 168 }
 };
+
+/**
+ * For deadline-anchored presets (cob-today, cob-tomorrow, end-of-week),
+ * compute the riseHours from createdAt to the relevant deadline.
+ * For other presets, return the static riseHours from URGENCY_ENVELOPES.
+ * This is called once at task creation and the result is stored in the task's EnvelopeParams.
+ */
+function computeRiseHours(profile: UrgencyProfile, createdAt: Date): number {
+  const msPerHour = 1000 * 60 * 60;
+
+  if (profile === "cob-today") {
+    // If before 17:00, deadline is 17:00 today.
+    // If at or after 17:00, shift to 17:00 the next workday (same logic as cob-tomorrow).
+    const deadline = new Date(createdAt);
+    deadline.setHours(17, 0, 0, 0);
+    if (createdAt.getTime() >= deadline.getTime()) {
+      // Past COB — advance to next workday
+      deadline.setDate(deadline.getDate() + 1);
+      while (deadline.getDay() === 0 || deadline.getDay() === 6) {
+        deadline.setDate(deadline.getDate() + 1);
+      }
+      deadline.setHours(17, 0, 0, 0);
+    }
+    return (deadline.getTime() - createdAt.getTime()) / msPerHour;
+  }
+
+  if (profile === "cob-tomorrow") {
+    // If before 17:00, deadline is 17:00 the next workday.
+    // If at or after 17:00, deadline is 17:00 the workday after that.
+    const eodToday = new Date(createdAt);
+    eodToday.setHours(17, 0, 0, 0);
+    const startDay = new Date(createdAt);
+    if (createdAt.getTime() >= eodToday.getTime()) {
+      // Past COB — shift the starting point forward by one day
+      startDay.setDate(startDay.getDate() + 1);
+    }
+    const deadline = new Date(startDay);
+    deadline.setDate(deadline.getDate() + 1);
+    while (deadline.getDay() === 0 || deadline.getDay() === 6) {
+      deadline.setDate(deadline.getDate() + 1);
+    }
+    deadline.setHours(17, 0, 0, 0);
+    return Math.max(0, (deadline.getTime() - createdAt.getTime()) / msPerHour);
+  }
+
+  if (profile === "end-of-week") {
+    // Friday 17:00 of the current week (week starting Monday)
+    const deadline = new Date(createdAt);
+    const day = deadline.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+    // Days until Friday
+    const daysUntilFriday = day <= 5 ? 5 - day : 6; // if Sunday, next Friday is 6 days away
+    deadline.setDate(deadline.getDate() + daysUntilFriday);
+    deadline.setHours(17, 0, 0, 0);
+    return Math.max(0, (deadline.getTime() - createdAt.getTime()) / msPerHour);
+  }
+
+  return URGENCY_ENVELOPES[profile].riseHours;
+}
+
+/**
+ * Build the concrete EnvelopeParams for a task at creation time.
+ * This is stored on the task (or derived on the fly for non-deadline-anchored presets).
+ */
+function buildEnvelopeParams(profile: UrgencyProfile, importance: Importance, createdAt: Date): EnvelopeParams {
+  return {
+    background: 0,
+    graceHours: URGENCY_ENVELOPES[profile].graceHours,
+    riseHours: computeRiseHours(profile, createdAt),
+    peakProblemness: IMPORTANCE_PEAKS[importance]
+  };
+}
 ```
 
 ### ScheduledBlock Schema
@@ -157,14 +237,21 @@ const IMPORTANCE_MULTIPLIERS: Record<Importance, number> = {
 ```typescript
 interface ScheduledBlock {
   id: string;
+  taskId: string;             // References the owning task
   date: string;              // ISO date: "2026-06-04"
   startMinutes: number;      // Minutes from midnight (e.g., 540 = 9:00am)
   durationMinutes: number;
-  partIndex?: number;        // For multi-day splits (1/2, 2/2)
-  totalParts?: number;
+  partIndex?: number;        // For multi-day splits: 1 = first part, 2 = second part
+  totalParts?: number;       // For multi-day splits: always 2 when present
   zIndex?: number;           // For overlapping blocks
 }
 ```
+
+**Splitting rules:**
+- When a task's duration doesn't fit in the remaining time of a work day, it is split into exactly 2 parts: part 1 fills to end-of-day, part 2 starts at the beginning of the next work day.
+- Splits are always atomic: both parts are created together and removed together. The two parts share the same `taskId` and are linked via `partIndex`/`totalParts`.
+- Split parts cannot be moved or deleted independently.
+- No further splitting of already-split parts (maximum 2 parts per task).
 
 ### TimeSession Schema
 
@@ -201,18 +288,20 @@ interface DaySchedule {
 **Key concept:** Envelope presets are *parameter templates*, not functions.
 
 When a task is created:
-1. The preset parameters (background, grace, rise, peak) are copied from the preset
-2. The peak is scaled by the importance multiplier
-3. These parameters define a function **P_i(t)** specific to task *i*
-4. **t = 0** is anchored at `task.createdAt` (the task's "birth time" in calendar time)
-5. **t** is measured in hours elapsed since `task.createdAt`
+1. The preset's `graceHours` is read from `URGENCY_ENVELOPES`
+2. For deadline-anchored presets (`cob-today`, `cob-tomorrow`, `end-of-week`), `riseHours` is computed from `createdAt` to the deadline using `computeRiseHours`; for other presets the static value is used
+3. `peakProblemness` is set directly from `IMPORTANCE_PEAKS[importance]` — no scaling or multiplication
+4. `background` is always 0 for preset-based tasks
+5. These parameters define a function **P_i(t)** specific to task *i*
+6. **t = 0** is anchored at `task.createdAt` (the task's "birth time" in calendar time)
+7. **t** is measured in hours elapsed since `task.createdAt`
 
 **Example:** Two tasks created 6 hours apart:
-- Task A created at 9:00am with "Critical" preset
-- Task B created at 3:00pm with "Critical" preset
+- Task A created at 9:00am with "Next Couple Hours" preset, High importance
+- Task B created at 3:00pm with "Next Couple Hours" preset, High importance
 
-Both use the same preset shape, but:
-- At 5:00pm calendar time: Task A has t=8h (peak), Task B has t=2h (still rising)
+Both use the same preset shape (rise = 2h, peak = 1.0), but:
+- At 5:00pm calendar time: Task A has t=8h (plateau at 1.0), Task B has t=2h (just reached peak)
 - Their P(t) curves have the same *shape* but are shifted in *calendar time*
 
 **Calendar time vs Task time:**
@@ -224,24 +313,21 @@ Both use the same preset shape, but:
 
 **Envelope:** Delayed ramp-to-plateau (piecewise linear, monotonically increasing)
 
-For a task with envelope params `(b, a, r, m)`, the problemness P_i(t) at task-relative time `t` (hours since task.createdAt) is:
+For a task with envelope params `(b, a, r, m)` where b=0 for preset tasks, the problemness P_i(t) at task-relative time `t` (hours since task.createdAt) is:
 
 ```typescript
+function getTaskEnvelope(task: Task): EnvelopeParams {
+  if (task.customEnvelope) return task.customEnvelope;
+  return buildEnvelopeParams(task.urgencyProfile, task.importance, task.createdAt);
+}
+
 function calculateProblemness(task: Task, currentTime: Date): number {
-  const profile = URGENCY_ENVELOPES[task.urgencyProfile];
-  const importance = IMPORTANCE_MULTIPLIERS[task.importance];
-  
-  const envelope = task.customEnvelope || {
-    background: profile.background,
-    graceHours: profile.graceHours,
-    riseHours: profile.riseHours,
-    peakProblemness: profile.peakProblemness * importance
-  };
+  const envelope = getTaskEnvelope(task);
   
   // t = 0 at task.createdAt, measured in calendar time (not work time)
   const hoursElapsed = (currentTime.getTime() - task.createdAt.getTime()) / (1000 * 60 * 60);
   
-  // Phase 1: Background (flat)
+  // Phase 1: Background (flat, always 0 for preset envelopes)
   if (hoursElapsed < envelope.graceHours) {
     return envelope.background;
   }
@@ -268,11 +354,12 @@ function accumulatedProblemness(task: Task, completionTime: Date): number {
   const hoursToComplete = (completionTime.getTime() - task.createdAt.getTime()) / (1000 * 60 * 60);
   
   // F_i(t) = ∫[0 to t] P_i(u) du
+  // For preset envelopes b = 0, simplifying to a ramp-to-plateau with no background offset.
   
   const { background: b, graceHours: a, riseHours: r, peakProblemness: m } = envelope;
   
   if (hoursToComplete <= a) {
-    // Only background phase
+    // Only background phase (= 0 for presets)
     return b * hoursToComplete;
   }
   
@@ -290,7 +377,7 @@ function accumulatedProblemness(task: Task, completionTime: Date): number {
 
 ### 4.4 Visual Representation
 
-**Single task envelope (task-relative time):**
+**Single task envelope (task-relative time, preset with b=0):**
 
 ```
 Problemness P_i(t)
@@ -299,27 +386,27 @@ Problemness P_i(t)
      |             /
      |            /
      |           /
-  b  |__________/              (background)
+   0 |__________/             
    0 |______|_______|__________→ t (hours since task.createdAt)
             a     a+r
          (grace) (rise)
 ```
+
+For all preset envelopes, b=0: there is no background level. The function starts at 0, stays flat through the grace period, then rises linearly to `m` (which equals `IMPORTANCE_PEAKS[importance]`), then plateaus.
 
 **Multiple tasks with same preset in calendar time:**
 
 ```
 Problemness
      ↑
-  1.0|           _____ Task A (created 9am)
+  1.0|           _____ Task A (created 9am, High)
      |          /
-     |         /    _____ Task B (created 3pm)
- 0.6 |________/____/
-     |
-   0 |_________________________→ Calendar time
+     |         /    _____ Task B (created 3pm, High)
+ 0.0 |________/____/____________________→ Calendar time
        9am  11am  1pm  3pm  5pm
 ```
 
-Both tasks use "Critical" preset (same shape), but Task B's envelope is shifted 6 hours later in calendar time.
+Both tasks use "Next Couple Hours" preset (rise = 2h, peak = 1.0), but Task B's envelope is shifted 6 hours later in calendar time.
 
 ---
 
@@ -337,6 +424,167 @@ Where:
 - `F_i(C_i)` = accumulated problemness for task i from creation to completion
 - `C_i` = completion time (accounting for work schedule gaps)
 
+### `packSequence` and `totalCost`
+
+**`packSequence(sequence: Task[], schedule: WorkSchedule): ScheduledBlock[]`**
+
+Iterates through tasks in order, placing each starting at the earliest available work time after the previous task ends:
+
+- "Earliest available work time" respects: (a) the work schedule and (b) any existing manually-placed blocks, which are treated as pre-blocked time.
+- When a task's duration doesn't fit in the remaining work time of the current day, it is split: part 1 fills to end-of-day, part 2 starts at the beginning of the next work day. Both blocks share the same `taskId` and are linked via `partIndex`/`totalParts`.
+- Never creates overlapping blocks — if a time slot is taken, advance past it.
+
+```typescript
+function packSequence(
+  sequence: Task[],
+  schedule: WorkSchedule,
+  manualBlocks: ScheduledBlock[] = []  // pre-placed blocks to treat as opaque
+): ScheduledBlock[] {
+  const result: ScheduledBlock[] = [];
+  let cursor = new Date(); // start from now
+
+  for (const task of sequence) {
+    // Advance cursor to the next available work time, skipping manual blocks
+    cursor = nextAvailableWorkTime(cursor, schedule, manualBlocks);
+
+    const daySchedule = getDaySchedule(cursor, schedule)!;
+    const cursorMinutes = cursor.getHours() * 60 + cursor.getMinutes();
+    const remainingToday = daySchedule.endMinutes - cursorMinutes;
+
+    if (task.estimatedMinutes <= remainingToday) {
+      // Fits today — single block
+      result.push({
+        id: crypto.randomUUID(),
+        taskId: task.id,
+        date: toISODate(cursor),
+        startMinutes: cursorMinutes,
+        durationMinutes: task.estimatedMinutes
+      });
+      cursor = new Date(cursor);
+      cursor.setMinutes(cursor.getMinutes() + task.estimatedMinutes);
+    } else {
+      // Doesn't fit — split across two days
+      const part1Duration = remainingToday;
+      const part2Duration = task.estimatedMinutes - part1Duration;
+
+      result.push({
+        id: crypto.randomUUID(),
+        taskId: task.id,
+        date: toISODate(cursor),
+        startMinutes: cursorMinutes,
+        durationMinutes: part1Duration,
+        partIndex: 1,
+        totalParts: 2
+      });
+
+      // Advance to start of next work day
+      const nextDay = nextWorkDayStart(cursor, schedule);
+
+      result.push({
+        id: crypto.randomUUID(),
+        taskId: task.id,
+        date: toISODate(nextDay),
+        startMinutes: nextDay.getHours() * 60 + nextDay.getMinutes(),
+        durationMinutes: part2Duration,
+        partIndex: 2,
+        totalParts: 2
+      });
+
+      cursor = new Date(nextDay);
+      cursor.setMinutes(cursor.getMinutes() + part2Duration);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Advance `from` to the next minute that is:
+ *   (a) within a work period, and
+ *   (b) not covered by any manual block.
+ * Manual blocks are treated as opaque: if `from` falls inside one, advance past its end.
+ * Repeats until stable (a manual block may push into non-work time, which then pushes
+ * into the next work period, which may be covered by another manual block, etc.)
+ */
+function nextAvailableWorkTime(
+  from: Date,
+  schedule: WorkSchedule,
+  manualBlocks: ScheduledBlock[]
+): Date {
+  let cursor = new Date(from);
+
+  let stable = false;
+  while (!stable) {
+    stable = true;
+
+    // Step 1: advance to next work period if not already in one
+    cursor = advanceToWorkTime(cursor, schedule);
+
+    // Step 2: check if cursor falls inside any manual block; if so, advance past it
+    const blocking = manualBlocks.find(b => blockCoversTime(b, cursor));
+    if (blocking) {
+      const blockEnd = new Date(blocking.date);
+      blockEnd.setHours(0, blocking.startMinutes + blocking.durationMinutes, 0, 0);
+      cursor = blockEnd;
+      stable = false; // re-check: we may now be outside work hours or in another block
+    }
+  }
+
+  return cursor;
+}
+
+/**
+ * Advance `from` to the start of the next work day (the day after `from`'s date).
+ * Returns a Date set to that day's startMinutes.
+ */
+function nextWorkDayStart(from: Date, schedule: WorkSchedule): Date {
+  const next = new Date(from);
+  next.setDate(next.getDate() + 1);
+  next.setHours(0, 0, 0, 0);
+  // Skip non-work days
+  while (!getDaySchedule(next, schedule)) {
+    next.setDate(next.getDate() + 1);
+  }
+  const day = getDaySchedule(next, schedule)!;
+  next.setHours(0, day.startMinutes, 0, 0);
+  return next;
+}
+
+/**
+ * Returns true if the given Date falls within the block's time range (inclusive start, exclusive end).
+ */
+function blockCoversTime(block: ScheduledBlock, time: Date): boolean {
+  const blockDate = toISODate(time);
+  if (block.date !== blockDate) return false;
+  const timeMinutes = time.getHours() * 60 + time.getMinutes();
+  return timeMinutes >= block.startMinutes && timeMinutes < block.startMinutes + block.durationMinutes;
+}
+```
+
+**`totalCost(blocks: ScheduledBlock[], tasks: Task[]): number`**
+
+For each task, find its last block (highest `partIndex`, or the only block when unsplit) and use its end time as the task's completion time. Sum `accumulatedProblemness(task, completionTime)` across all tasks.
+
+```typescript
+function totalCost(blocks: ScheduledBlock[], tasks: Task[]): number {
+  let cost = 0;
+  for (const task of tasks) {
+    const taskBlocks = blocks.filter(b => b.taskId === task.id);
+    if (taskBlocks.length === 0) continue;
+    // Last block = highest partIndex (or only block)
+    const lastBlock = taskBlocks.reduce((a, b) =>
+      (b.partIndex ?? 1) > (a.partIndex ?? 1) ? b : a
+    );
+    const completionDate = new Date(lastBlock.date);
+    completionDate.setHours(0, lastBlock.startMinutes + lastBlock.durationMinutes, 0, 0);
+    cost += accumulatedProblemness(task, completionDate);
+  }
+  return cost;
+}
+```
+
+**Auto-allocate scope:** The optimizer **only re-sequences unscheduled tasks** (tasks where `scheduledBlocks.length === 0`). Manually scheduled tasks are treated as immovable anchors that block out time and are not moved or removed by the optimizer.
+
 ### Algorithm: Greedy Sequence + Local Search
 
 **Phase 1: Dynamic Greedy Ordering**
@@ -344,8 +592,8 @@ Where:
 At each step, choose the unscheduled task with the highest **avoided cost per duration**:
 
 ```typescript
-function greedyScore(task: Task, currentWorkTime: Date): number {
-  const completionTime = advanceWork(currentWorkTime, task.estimatedMinutes);
+function greedyScore(task: Task, currentWorkTime: Date, schedule: WorkSchedule): number {
+  const completionTime = advanceWork(currentWorkTime, task.estimatedMinutes, schedule);
   const nowCost = accumulatedProblemness(task, currentWorkTime);
   const completeCost = accumulatedProblemness(task, completionTime);
   
@@ -358,86 +606,92 @@ function greedyScore(task: Task, currentWorkTime: Date): number {
 
 **Phase 2: Local Search Improvement**
 
-After greedy ordering, improve via:
+After greedy ordering, improve via a unified improvement loop that covers both move types:
 
 1. **Adjacent swaps:** Try swapping neighboring tasks, accept if cost reduces
 2. **Insertion moves:** Remove task from sequence, try inserting elsewhere
 
-Stop when no local move improves the schedule.
+The two phases share a single outer `while (improved)` loop — any improvement in either phase restarts both phases from scratch.
 
 **Full algorithm:**
 
 ```typescript
 function autoAllocate(tasks: Task[], schedule: WorkSchedule): ScheduledBlock[] {
-  // 1. Greedy initial ordering
+  // 1. Greedy initial ordering (only unscheduled tasks)
   const sequence: Task[] = [];
   let currentTime = new Date();
   const remaining = [...tasks.filter(t => !t.isCompleted && t.scheduledBlocks.length === 0)];
   
   while (remaining.length > 0) {
-    // Compute scores for all remaining tasks
-    const scores = remaining.map(t => ({ task: t, score: greedyScore(t, currentTime) }));
+    const scores = remaining.map(t => ({
+      task: t,
+      score: greedyScore(t, currentTime, schedule)
+    }));
     scores.sort((a, b) => b.score - a.score);
     
-    // Take highest-scoring task
     const chosen = scores[0].task;
     sequence.push(chosen);
     remaining.splice(remaining.indexOf(chosen), 1);
     
-    // Advance time
-    currentTime = advanceWork(currentTime, chosen.estimatedMinutes);
+    currentTime = advanceWork(currentTime, chosen.estimatedMinutes, schedule);
   }
   
   // 2. Pack into schedule
   let blocks = packSequence(sequence, schedule);
-  let cost = totalCost(blocks);
+  let cost = totalCost(blocks, sequence);
   
-  // 3. Adjacent swap improvement
+  // 3. Unified local search: adjacent swaps + insertion moves
+  //    Any improvement in either phase restarts the outer loop from scratch.
   let improved = true;
   while (improved) {
     improved = false;
+    
+    // Phase A: Adjacent swaps
     for (let i = 0; i < sequence.length - 1; i++) {
-      // Try swapping i and i+1
       [sequence[i], sequence[i+1]] = [sequence[i+1], sequence[i]];
       const newBlocks = packSequence(sequence, schedule);
-      const newCost = totalCost(newBlocks);
+      const newCost = totalCost(newBlocks, sequence);
       
       if (newCost < cost) {
         blocks = newBlocks;
         cost = newCost;
         improved = true;
+        break; // restart outer loop
       } else {
-        // Revert swap
-        [sequence[i], sequence[i+1]] = [sequence[i+1], sequence[i]];
+        [sequence[i], sequence[i+1]] = [sequence[i+1], sequence[i]]; // revert
       }
     }
-  }
-  
-  // 4. Insertion move improvement
-  for (let i = 0; i < sequence.length; i++) {
-    const task = sequence[i];
-    sequence.splice(i, 1);
     
-    let bestPos = i;
-    let bestCost = cost;
+    if (improved) continue; // restart outer loop
     
-    for (let j = 0; j <= sequence.length; j++) {
-      sequence.splice(j, 0, task);
-      const newBlocks = packSequence(sequence, schedule);
-      const newCost = totalCost(newBlocks);
+    // Phase B: Insertion moves
+    for (let i = 0; i < sequence.length; i++) {
+      const task = sequence[i];
+      sequence.splice(i, 1);
       
-      if (newCost < bestCost) {
-        bestPos = j;
-        bestCost = newCost;
+      let bestPos = i;
+      let bestCost = cost;
+      
+      for (let j = 0; j <= sequence.length; j++) {
+        sequence.splice(j, 0, task);
+        const newBlocks = packSequence(sequence, schedule);
+        const newCost = totalCost(newBlocks, sequence);
+        
+        if (newCost < bestCost) {
+          bestPos = j;
+          bestCost = newCost;
+        }
+        
+        sequence.splice(j, 1);
       }
       
-      sequence.splice(j, 1);
-    }
-    
-    sequence.splice(bestPos, 0, task);
-    if (bestCost < cost) {
-      blocks = packSequence(sequence, schedule);
-      cost = bestCost;
+      sequence.splice(bestPos, 0, task);
+      if (bestCost < cost) {
+        blocks = packSequence(sequence, schedule);
+        cost = bestCost;
+        improved = true;
+        break; // restart outer loop
+      }
     }
   }
   
@@ -448,7 +702,7 @@ function autoAllocate(tasks: Task[], schedule: WorkSchedule): ScheduledBlock[] {
 ### Work Calendar Advancement
 
 ```typescript
-function advanceWork(startTime: Date, durationMinutes: number): Date {
+function advanceWork(startTime: Date, durationMinutes: number, schedule: WorkSchedule): Date {
   // Returns the calendar time at which a task starting at startTime
   // with duration durationMinutes (work hours) would be complete,
   // skipping non-work periods.
@@ -457,7 +711,7 @@ function advanceWork(startTime: Date, durationMinutes: number): Date {
   let remainingMinutes = durationMinutes;
   
   while (remainingMinutes > 0) {
-    const daySchedule = getDaySchedule(currentTime, workSchedule);
+    const daySchedule = getDaySchedule(currentTime, schedule);
     
     if (!daySchedule) {
       // Not a work day, skip to next
@@ -523,22 +777,22 @@ function advanceWork(startTime: Date, durationMinutes: number): Date {
 ```
 Task List                                    [+ Add Task]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[■] 🚨 OH CRAP  Respond to client email     Critical | High | 30m
-                [whenever | soon | by-date | ▼]  [L | M | H]  [⏵]
+[■] 🚨 OH CRAP  Respond to client email     next-couple-hours | High | 30m
+                [next-couple-hours | cob-today | ▼]  [L | M | H]  [⏵]
 
-[■] 😰 Uh oh    Prepare Q2 presentation     By Date | High | 2h
-                [whenever | soon | by-date | ▼]  [L | M | H]  [⏵]
+[■] 😰 Uh oh    Prepare Q2 presentation     cob-tomorrow | High | 2h
+                [next-couple-hours | cob-today | ▼]  [L | M | H]  [⏵]
 
-[ ] 😬 Oopsie   Review metrics dashboard     Soon | Med | 1h
+[ ] 😬 Oopsie   Review metrics dashboard     few-days | Med | 1h
                 Scheduled: Wed 10:00am
 
-[■] 😌 No Problem  Update documentation      Whenever | Low | 1h
-                   [whenever | soon | by-date | ▼]  [L | M | H]  [⏵]
+[■] 😌 No Problem  Update documentation      whenever | Low | 1h
+                   [next-couple-hours | cob-today | ▼]  [L | M | H]  [⏵]
 ```
 
 **Elements per row:**
 
-1. **Block indicator**: `[■]` unscheduled, `[ ]` scheduled
+1. **Block indicator**: `[■]` unscheduled, `[ ]` scheduled — binary state only (see Section 11)
 2. **Problemness label**: Emoji + phrase (see scale below)
 3. **Description**: Editable text
 4. **Urgency picker**: Dropdown or arrows (`< >`) to cycle presets
@@ -593,7 +847,8 @@ const PROBLEMNESS_SCALE = [
 - Drag from task list → schedule
 - Drag within matrix → reschedule
 - Drag to task list → unschedule
-- Resize edges → adjust duration
+
+**Not included (deferred):** Resize edges to adjust duration
 
 ### 6.4 Active Task Timer Bar
 
@@ -669,7 +924,7 @@ const PROBLEMNESS_SCALE = [
 
 **Features:**
 - Dynamic greedy ordering (avoided cost per duration)
-- Earliest-available packing
+- Earliest-available packing (`packSequence`)
 - Adjacent swap improvement
 - Insertion move improvement
 - Multi-day task splitting
@@ -686,7 +941,7 @@ const PROBLEMNESS_SCALE = [
 - Start/pause/finish timer
 - Active task timer bar
 - Store time sessions
-- Calculate actual vs estimated
+- Calculate actual vs estimated (derived from `timeSessions`)
 
 ---
 
@@ -735,40 +990,71 @@ const PROBLEMNESS_SCALE = [
 
 ### Exact Solver (DP) for Small Instances
 
+For problem instances with at most 15 tasks, an exact DP over subsets is feasible (2^15 = 32768 states).
+
+**Formulation:**
+- State: `mask` — a bitmask where bit `i` is set if task `i` has been completed
+- `endTime[mask]` — the calendar time at which the last task in `mask` finishes, given they were done in some order. Since we only care about the *total* cost, and tasks are packed sequentially, `endTime[mask]` depends only on *which* tasks are in `mask`, not their order (same total work time regardless of sequence). This lets us precompute it.
+- `solve(mask)` — minimum cost to complete all tasks *not* in `mask`, given that the tasks in `mask` are already done and the clock is at `endTime[mask]`
+
+**Key insight:** `endTime[mask]` is order-independent (same work minutes → same calendar end time when packed from a fixed start), so it can be precomputed for all 2^n masks in O(n · 2^n) time rather than re-derived inside the recursion.
+
 ```typescript
-// State: set of completed tasks
-// OPT(S) = minimum cost to complete exactly tasks in S
-function exactDP(tasks: Task[]): number {
-  const memo = new Map<Set<Task>, number>();
-  
-  function solve(completed: Set<Task>): number {
-    if (completed.size === tasks.length) return 0;
-    
-    const key = setToKey(completed);
-    if (memo.has(key)) return memo.get(key);
-    
+function exactDP(tasks: Task[], schedule: WorkSchedule): number {
+  const n = tasks.length;
+  if (n > 15) throw new Error("exactDP: too many tasks (max 15)");
+
+  const now = new Date();
+
+  // Precompute endTime[mask]: calendar time after completing all tasks in mask,
+  // packed sequentially in index order from `now`.
+  // Order doesn't affect end time (same total minutes), so index order is fine here.
+  const endTime = new Array<Date>(1 << n);
+  endTime[0] = now;
+  for (let mask = 1; mask < (1 << n); mask++) {
+    // Find the lowest set bit to determine which task was "added" to get this mask
+    const i = lowestSetBit(mask);
+    const prevMask = mask ^ (1 << i);
+    endTime[mask] = advanceWork(endTime[prevMask], tasks[i].estimatedMinutes, schedule);
+  }
+
+  // solve(mask) = min cost to complete all tasks NOT in mask,
+  // given the clock is at endTime[mask].
+  const memo = new Float64Array(1 << n).fill(-1);
+
+  function solve(mask: number): number {
+    if (mask === (1 << n) - 1) return 0;
+    if (memo[mask] !== -1) return memo[mask];
+
+    const currentTime = endTime[mask];
     let minCost = Infinity;
-    
-    for (const task of tasks) {
-      if (completed.has(task)) continue;
-      
-      const newCompleted = new Set(completed);
-      newCompleted.add(task);
-      
-      const completionTime = getCompletionTime(newCompleted);
-      const taskCost = accumulatedProblemness(task, completionTime);
-      const remainingCost = solve(newCompleted);
-      
-      minCost = Math.min(minCost, taskCost + remainingCost);
+
+    for (let i = 0; i < n; i++) {
+      if (mask & (1 << i)) continue; // already done
+
+      const newMask = mask | (1 << i);
+      const completionTime = endTime[newMask];
+
+      const taskCost = accumulatedProblemness(tasks[i], completionTime);
+      const remainingCost = solve(newMask);
+
+      const total = taskCost + remainingCost;
+      if (total < minCost) minCost = total;
     }
-    
-    memo.set(key, minCost);
+
+    memo[mask] = minCost;
     return minCost;
   }
-  
-  return solve(new Set());
+
+  return solve(0);
+}
+
+function lowestSetBit(mask: number): number {
+  return Math.log2(mask & -mask) | 0;
 }
 ```
+
+**Complexity:** O(n · 2^n) time, O(2^n) space. For n=15: ~500k operations, negligible in practice.
 
 ### Metrics
 
@@ -778,29 +1064,16 @@ function exactDP(tasks: Task[]): number {
 
 ---
 
-## 11. Open Questions
+## 11. Scheduling Rules
 
-### Q1: Background problemness defaults
+### All-or-Nothing Scheduling
 
-Are the current background levels (0.05-0.6) the right starting values? Need user testing.
+Tasks cannot be partially scheduled. A task is either **fully scheduled** (all its blocks are placed on the matrix) or **unscheduled** (no blocks). There is no partial state.
 
-### Q2: Smooth vs piecewise linear
-
-Should we use smoothstep curve for the rise phase instead of linear? Would make envelope differentiable at transition points.
-
-**Decision:** Start with piecewise linear (simpler), swap in smoothstep later if sharp corners cause issues.
-
-### Q3: Custom envelope editor
-
-How much control should power users have? Full curve editor (DAW-style) or just parameter sliders?
-
-**Decision:** Defer to Phase 5, start with presets only.
-
-### Q4: Partial scheduling
-
-If not all tasks fit in horizon, should we schedule a subset or reject/warn?
-
-**Decision:** Phase 1 assumes all tasks fit. Add partial scheduling support in Phase 4+.
+- The `[■]` / `[ ]` indicator in the task list is binary: `[■]` = unscheduled, `[ ]` = scheduled. No partial state is possible.
+- If a scheduled block is removed from the matrix, **all blocks for that task are removed** and the task returns to unscheduled state in the task list.
+- Split tasks (2 parts) are treated atomically: both parts are always placed or removed together.
+- The auto-allocate algorithm either places all requested tasks or fails silently: if it cannot schedule all unscheduled tasks (e.g. insufficient work time in the visible window), no blocks are written, the task list is unchanged, and the failure is logged to the console.
 
 ---
 
@@ -865,7 +1138,7 @@ taskflow-app/
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "description": "Respond to client email",
   "estimatedMinutes": 30,
-  "urgencyProfile": "critical",
+  "urgencyProfile": "next-couple-hours",
   "importance": "high",
   "customEnvelope": null,
   "createdAt": "2026-06-02T09:00:00Z",
@@ -881,29 +1154,36 @@ taskflow-app/
 
 **Task created at 9:00am on 2026-06-02**
 
-Profile: **Critical** (background: 0.6, grace: 0, rise: 8h, peak: 1.0)  
-Importance: **High** (×1.5 multiplier → peak: 1.5, but capped at 1.0)
+Profile: **next-couple-hours** (background: 0, grace: 0h, rise: 2h)  
+Importance: **High** (peak = 1.0)
+
+Envelope at creation: `{ background: 0, graceHours: 0, riseHours: 2, peakProblemness: 1.0 }`
 
 ```
 Calendar time     | Task time t | P_i(t) | Label
-9:00am (created)  | t = 0h      | 0.60   | 🚨 OH CRAP (background)
-11:00am           | t = 2h      | 0.70   | 🚨 OH CRAP (rising)
-1:00pm            | t = 4h      | 0.80   | 🚨 OH CRAP (rising)
-3:00pm            | t = 6h      | 0.90   | 💀 I am so sorry (rising)
-5:00pm            | t = 8h      | 1.00   | 💀 I am so sorry (peak)
-7:00pm            | t = 10h     | 1.00   | 💀 I am so sorry (plateau)
+9:00am (created)  | t = 0h      | 0.00   | 😌 No Problem (start of rise)
+9:30am            | t = 0.5h    | 0.25   | 😬 Oopsie (rising)
+10:00am           | t = 1h      | 0.50   | 😰 Uh oh (rising)
+10:30am           | t = 1.5h    | 0.75   | 🚨 OH CRAP (rising)
+11:00am           | t = 2h      | 1.00   | 💀 I am so sorry (peak)
+1:00pm            | t = 4h      | 1.00   | 💀 I am so sorry (plateau)
 ```
 
-**If a second task with the same preset is created at 3:00pm:**
+**If a second task with the same preset is created at 3:00pm (Medium importance):**
+
+Profile: **next-couple-hours**, Importance: **Medium** (peak = 0.7)
+
+Envelope: `{ background: 0, graceHours: 0, riseHours: 2, peakProblemness: 0.7 }`
 
 ```
 Calendar time     | Task A (t)  | P_A(t) | Task B (t)  | P_B(t)
-3:00pm            | t = 6h      | 0.90   | t = 0h      | 0.60
+3:00pm            | t = 6h      | 1.00   | t = 0h      | 0.00
+3:30pm            | t = 6.5h    | 1.00   | t = 0.5h    | 0.175
+4:00pm            | t = 7h      | 1.00   | t = 1h      | 0.35
 5:00pm            | t = 8h      | 1.00   | t = 2h      | 0.70
-7:00pm            | t = 10h     | 1.00   | t = 4h      | 0.80
 ```
 
-Same preset shape, different calendar-time trajectories.
+Same preset shape, different importance levels, different calendar-time trajectories.
 
 ---
 
