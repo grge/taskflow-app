@@ -120,6 +120,43 @@ A timer bar sits at the bottom of the screen. Clicking ▶ on any task row start
 
 Stopping the timer does not complete the task — the user completes it separately via the ✓ button.
 
+## Current Time Indicator (off-spec)
+
+Two visual aids on today's row in the week matrix:
+
+- **Red time rule**: thin vertical line with a dot at the top, positioned at the current minute. Uses `clock.now` from `clock.svelte.js` so it updates every second. Only rendered when current time falls within the day's work hours.
+- **Elapsed overlay**: semi-transparent grey wash from work-day start to `min(now, dayEnd)`, rendered behind blocks (z-index 3) so past scheduled blocks remain fully visible. Skipped when now is before work start.
+
+Blocks were bumped from z-index `i+1` to `i+10` to ensure they always sit above the overlay.
+
+## Scheduling Buffer (off-spec)
+
+`WorkSchedule` has a `bufferMinutes` field (default 15, persisted). Old saved schedules are migrated on load via `{ bufferMinutes: 15, ...parsed.workSchedule }`.
+
+In `scheduler.js`, `computeFreeIntervals` expands each manual block's exclusion zone by `bufferMinutes` on both sides (clamped to day boundaries), so auto-placed tasks are never placed within the buffer of a manual block. `packSequence` advances the cursor by `bufferMinutes` after each placed task (except the last), creating a gap between consecutive auto-scheduled tasks.
+
+The buffer setting is exposed in the Settings modal as a segmented button group: None / 5m / 10m / 15m / 30m.
+
+## Task Row Design
+
+Redesigned from a two-row layout with unlabelled controls to:
+
+- **Primary row**: drag handle · description (dominant, click to edit) · hover-revealed play + complete buttons
+- **Meta strip**: problemness badge · divider · `‹ urgency ›` picker · L/M/H importance · duration chip · scheduled time (if scheduled) · elapsed time (if any)
+
+Both the problemness badge and urgency label have fixed pixel widths (96px and 92px respectively) so that cycling through urgency profiles or watching problemness change doesn't cause the row to reflow and shift the arrow buttons.
+
+The drag handle uses an SVG dot-grid icon (grey, brightens on hover). Scheduled tasks replace it with a green SVG checkmark. Action buttons (play, complete) are hidden at rest and fade in on row hover.
+
+## Settings Modal Design
+
+Redesigned from a flat list to a sectioned layout:
+
+- Header bar with title + × close button
+- **Work Hours** section: day toggles + time range inputs
+- **Scheduling** section: buffer between tasks (segmented buttons)
+- Footer bar: "Reset all data" as a quiet ghost link (left), Cancel + Save (right)
+
 ## Known Deferred Items (from spec)
 
 - Insights / exact DP solver (Phase 4)
