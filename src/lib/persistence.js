@@ -22,23 +22,34 @@ function reviveTask(raw) {
   return task;
 }
 
+function reviveTimer(raw) {
+  if (!raw) return null;
+  return {
+    ...raw,
+    startedAt: raw.startedAt ? new Date(raw.startedAt) : null,
+    pausedAt: raw.pausedAt ? new Date(raw.pausedAt) : null,
+    accumulatedSeconds: raw.accumulatedSeconds ?? 0,
+  };
+}
+
 export function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { tasks: [], workSchedule: DEFAULT_WORK_SCHEDULE };
+    if (!raw) return { tasks: [], workSchedule: DEFAULT_WORK_SCHEDULE, activeTimer: null };
     const parsed = JSON.parse(raw);
     return {
       tasks: (parsed.tasks || []).map(reviveTask),
-      workSchedule: parsed.workSchedule || DEFAULT_WORK_SCHEDULE
+      workSchedule: parsed.workSchedule || DEFAULT_WORK_SCHEDULE,
+      activeTimer: reviveTimer(parsed.activeTimer ?? null),
     };
   } catch {
-    return { tasks: [], workSchedule: DEFAULT_WORK_SCHEDULE };
+    return { tasks: [], workSchedule: DEFAULT_WORK_SCHEDULE, activeTimer: null };
   }
 }
 
-export function saveState(tasks, workSchedule) {
+export function saveState(tasks, workSchedule, activeTimer) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, workSchedule }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, workSchedule, activeTimer }));
   } catch {
     // Storage full or unavailable — silently skip
   }

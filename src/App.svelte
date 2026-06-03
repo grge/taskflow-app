@@ -1,12 +1,15 @@
 <script>
   import { activeModal, openModal } from './stores/ui.svelte.js';
   import { initPersistence } from './stores/tasks.svelte.js';
+  import { initClock } from './stores/clock.svelte.js';
   import TaskList from './lib/components/TaskList.svelte';
   import WeekMatrix from './lib/components/WeekMatrix.svelte';
+  import TimerBar from './lib/components/TimerBar.svelte';
   import AddTaskModal from './lib/components/AddTaskModal.svelte';
   import SettingsModal from './lib/components/SettingsModal.svelte';
 
   initPersistence();
+  initClock();
 </script>
 
 <div class="app-shell">
@@ -25,6 +28,8 @@
       <TaskList />
     </div>
   </main>
+
+  <TimerBar />
 </div>
 
 {#if activeModal.value === 'add-task'}

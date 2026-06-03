@@ -3,8 +3,15 @@ import { createTask, updateTask } from '../lib/tasks.js';
 import { placeBlockOnTask, removeBlocksForTask } from '../lib/scheduling.js';
 import { autoSchedule } from '../lib/scheduler.js';
 import { workSchedule } from './schedule.svelte.js';
+import { activeTimer, setActiveTimer } from './ui.svelte.js';
 
-let _tasks = $state(loadState().tasks);
+const _initialState = loadState();
+let _tasks = $state(_initialState.tasks);
+
+// Restore active timer from localStorage on load.
+if (_initialState.activeTimer) {
+  setActiveTimer(_initialState.activeTimer);
+}
 
 export const tasks = {
   get value() { return _tasks; }
@@ -24,7 +31,7 @@ export const completedTasks = {
 
 export function initPersistence() {
   $effect(() => {
-    saveState(_tasks, workSchedule.value);
+    saveState(_tasks, workSchedule.value, activeTimer.value);
   });
 }
 
@@ -59,6 +66,38 @@ export function unscheduleTask(taskId) {
     t.id === taskId ? removeBlocksForTask(t) : t
   );
 }
+
+// ─── timer mutations ─────────────────────────────────────────────────────────
+// activeTimer shape: { taskId, startedAt, pausedAt, accumulatedSeconds }
+//   - startedAt: when the current running segment began (null when paused)
+//   - pausedAt: when paused (null when running)
+//   - accumulatedSeconds: total seconds from all previous segments
+// Display: accumulatedSeconds + (now - startedAt) when running, accumulatedSeconds when paused.
+// timeSessions on tasks are reserved for Phase 4 and not written here.
+
+export function startTimer(taskId) {
+  setActiveTimer({ taskId, startedAt: new Date(), pausedAt: null, accumulatedSeconds: 0 });
+}
+
+export function pauseTimer(taskId) {
+  const t = activeTimer.value;
+  if (!t || t.taskId !== taskId || t.pausedAt) return;
+  const now = new Date();
+  const elapsed = t.accumulatedSeconds + Math.floor((now - t.startedAt) / 1000);
+  setActiveTimer({ taskId, startedAt: null, pausedAt: now, accumulatedSeconds: elapsed });
+}
+
+export function resumeTimer(taskId) {
+  const t = activeTimer.value;
+  if (!t || t.taskId !== taskId || !t.pausedAt) return;
+  setActiveTimer({ taskId, startedAt: new Date(), pausedAt: null, accumulatedSeconds: t.accumulatedSeconds });
+}
+
+export function finishTimer(taskId) {
+  setActiveTimer(null);
+}
+
+// ─── schedule mutations ───────────────────────────────────────────────────────
 
 export function autoScheduleAll() {
   const blocks = autoSchedule(_tasks, workSchedule.value);

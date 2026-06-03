@@ -225,7 +225,15 @@
 .scheduled-info {
   font-size: 11px;
   color: var(--color-text-muted);
-  margin-top: 4px;
+}
+
+.elapsed-info {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.elapsed-info.elapsed-running {
+  color: #4CAF50;
 }
 
 .complete-btn {
@@ -239,6 +247,26 @@
 }
 
 .complete-btn:hover { opacity: 1; }
+
+.play-btn {
+  background: none;
+  border: none;
+  font-size: 12px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+  opacity: 0.4;
+  color: #4CAF50;
+  transition: opacity 0.15s;
+}
+
+.play-btn:hover { opacity: 1; }
+
+.timer-active-indicator {
+  font-size: 10px;
+  color: #4CAF50;
+  flex-shrink: 0;
+  padding: 2px 4px;
+}
 
 .empty-state {
   padding: var(--spacing-lg);

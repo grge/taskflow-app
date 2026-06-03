@@ -104,9 +104,24 @@ The replacement is time-based: `grabOffsetMinutes` is computed at drag start as 
 
 **Task list sort bar** sits between the header and the task list. Sorts by: date added (default), name, urgency, importance, current problemness, or scheduled time. Unscheduled tasks sort to the bottom of the scheduled-time view.
 
+## Time Tracking (Phase 3)
+
+A timer bar sits at the bottom of the screen. Clicking ▶ on any task row starts the timer; the bar shows the task name, elapsed time (seconds-accurate, monospace), and Pause/Resume/Stop buttons.
+
+**Timer state** lives in `activeTimer` in `ui.svelte.js`: `{ taskId, startedAt, pausedAt, accumulatedSeconds }`. Display is always `accumulatedSeconds + (now - startedAt)` when running, `accumulatedSeconds` when paused. There is no summing of session arrays — elapsed is derived directly from the stored timestamps.
+
+`pauseTimer` computes elapsed internally from `activeTimer.startedAt` before banking it into `accumulatedSeconds`. Components call `pauseTimer(taskId)` and `resumeTimer(taskId)` with no computed values — the store is self-contained.
+
+**Persistence:** `activeTimer` is saved to localStorage alongside tasks and work schedule. On reload, `startedAt` is the original start time so elapsed (including time the tab was closed) is correctly recovered.
+
+**`clock.svelte.js`** provides a single shared `clock.now` that ticks once per second, initialized via `initClock()` in `App.svelte`. Both `TimerBar` and `TaskRow` read from this rather than maintaining their own intervals.
+
+**`timeSessions`** on tasks is reserved for Phase 4 (estimation accuracy). The timer mutations do not write to it — the half-maintained state from earlier iterations was removed.
+
+Stopping the timer does not complete the task — the user completes it separately via the ✓ button.
+
 ## Known Deferred Items (from spec)
 
-- Time tracking / timer bar (Phase 3)
 - Insights / exact DP solver (Phase 4)
 - Manual task reordering
 - Y-stagger for overlapping blocks in the matrix

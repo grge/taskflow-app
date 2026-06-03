@@ -2,6 +2,7 @@ let _dragState = $state(null);
 let _activeModal = $state(null);
 let _editingTaskId = $state(null);
 let _previewBlock = $state([]); // array of { taskId, date, startMinutes, durationMinutes }
+let _activeTimer = $state(null); // { taskId, startedAt, pausedAt } — pausedAt null when running
 
 export const dragState = {
   get value() { return _dragState; }
@@ -37,4 +38,12 @@ export function closeModal() {
 
 export function setEditingTask(id) {
   _editingTaskId = id;
+}
+
+export const activeTimer = {
+  get value() { return _activeTimer; }
+};
+
+export function setActiveTimer(timer) {
+  _activeTimer = timer;
 }

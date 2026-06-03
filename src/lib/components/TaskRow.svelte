@@ -1,25 +1,37 @@
 <script>
   import { calculateProblemness, getProblemnessTier } from '../envelope.js';
   import { URGENCY_PROFILE_LABELS, URGENCY_PROFILE_ORDER } from '../constants.js';
-  import { editTask, deleteTask, completeTask, unscheduleTask } from '../../stores/tasks.svelte.js';
-  import { setEditingTask, editingTaskId } from '../../stores/ui.svelte.js';
+  import { editTask, deleteTask, completeTask, unscheduleTask, startTimer } from '../../stores/tasks.svelte.js';
+  import { setEditingTask, editingTaskId, activeTimer } from '../../stores/ui.svelte.js';
   import { draggableTask } from '../dnd.js';
   import { minutesToTimeString, toISODate } from '../calendar.js';
+  import { clock } from '../../stores/clock.svelte.js';
 
   let { task } = $props();
 
   const DURATION_OPTIONS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 480];
 
-  let now = $state(new Date());
+  let isTimerRunning = $derived(activeTimer.value?.taskId === task.id);
 
-  $effect(() => {
-    const interval = setInterval(() => { now = new Date(); }, 60000);
-    return () => clearInterval(interval);
-  });
-
-  let problemness = $derived(calculateProblemness(task, now));
+  let problemness = $derived(calculateProblemness(task, clock.now));
   let tier = $derived(getProblemnessTier(problemness));
   let isScheduled = $derived(task.scheduledBlocks.length > 0);
+
+  let totalElapsedSeconds = $derived(() => {
+    const t = activeTimer.value;
+    if (!t || t.taskId !== task.id) return 0;
+    const accumulated = t.accumulatedSeconds ?? 0;
+    if (t.pausedAt) return accumulated;
+    return accumulated + Math.floor((clock.now - new Date(t.startedAt)) / 1000);
+  });
+
+  function formatElapsed(seconds) {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60) % 60;
+    const h = Math.floor(seconds / 3600);
+    if (h > 0) return m === 0 ? `${h}h` : `${h}h ${m}m`;
+    return `${m}m`;
+  }
   let isEditing = $derived(editingTaskId.value === task.id);
 
   let editValue = $state(task.description);
@@ -155,10 +167,16 @@
 
       {#if isScheduled}
         <span class="scheduled-info">📅 {formatScheduled(task.scheduledBlocks)}</span>
-        <button class="btn-ghost complete-btn" title="Complete" onclick={() => completeTask(task.id)}>✓</button>
-      {:else}
-        <button class="btn-ghost complete-btn" title="Complete" onclick={() => completeTask(task.id)}>✓</button>
       {/if}
+      {#if totalElapsedSeconds() > 0}
+        <span class="elapsed-info" class:elapsed-running={isTimerRunning}>⏱ {formatElapsed(totalElapsedSeconds())}</span>
+      {/if}
+      {#if !isTimerRunning}
+        <button class="btn-ghost play-btn" title="Start timer" onclick={() => startTimer(task.id)}>▶</button>
+      {:else}
+        <span class="timer-active-indicator" title="Timer running">●</span>
+      {/if}
+      <button class="btn-ghost complete-btn" title="Complete" onclick={() => completeTask(task.id)}>✓</button>
     </div>
   </div>
 </div>
