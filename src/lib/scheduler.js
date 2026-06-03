@@ -145,14 +145,21 @@ function greedyScore(task, currentWorkTime, schedule) {
 
 // ─── autoSchedule ────────────────────────────────────────────────────────────
 
-export function autoSchedule(allTasks, schedule) {
+// Scale task estimatedMinutes by multiplier for scheduling purposes only.
+// The stored task is not mutated; blocks retain real durations.
+function scaledTask(task, multiplier) {
+  if (multiplier === 1) return task;
+  return { ...task, estimatedMinutes: Math.round(task.estimatedMinutes * multiplier) };
+}
+
+export function autoSchedule(allTasks, schedule, estimationMultiplier = 1) {
   const manualBlocks = allTasks
     .filter(t => t.scheduledBlocks.length > 0)
     .flatMap(t => t.scheduledBlocks);
 
-  const unscheduled = allTasks.filter(
-    t => !t.isCompleted && !t.isDeleted && t.scheduledBlocks.length === 0
-  );
+  const unscheduled = allTasks
+    .filter(t => !t.isCompleted && !t.isDeleted && t.scheduledBlocks.length === 0)
+    .map(t => scaledTask(t, estimationMultiplier));
 
   if (!unscheduled.length) {
     console.log('[autoSchedule] nothing to schedule');

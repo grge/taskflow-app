@@ -1,5 +1,6 @@
 <script>
   import { activeTasks, completedTasks, autoScheduleAll, clearSchedule } from '../../stores/tasks.svelte.js';
+  import { estimationMultiplier } from '../../stores/estimation.svelte.js';
   import { openModal } from '../../stores/ui.svelte.js';
   import { calculateProblemness } from '../envelope.js';
   import TaskRow from './TaskRow.svelte';
@@ -66,7 +67,7 @@
     <h2>Tasks</h2>
     <div class="task-list-actions">
       <button class="btn btn-ghost" onclick={clearSchedule}>Clear</button>
-      <button class="btn btn-ghost" onclick={autoScheduleAll}>Auto Schedule</button>
+      <button class="btn btn-ghost" onclick={() => autoScheduleAll(estimationMultiplier.value)}>Auto Schedule</button>
       <button class="btn btn-primary" onclick={() => openModal('add-task')}>+ Add Task</button>
     </div>
   </div>

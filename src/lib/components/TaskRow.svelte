@@ -20,13 +20,15 @@
   let editValue = $state(task.description);
   let showDurationPicker = $state(false);
 
-  let totalElapsedSeconds = $derived(() => {
-    const t = activeTimer.value;
-    if (!t || t.taskId !== task.id) return 0;
-    const accumulated = t.accumulatedSeconds ?? 0;
-    if (t.pausedAt) return accumulated;
-    return accumulated + Math.floor((clock.now - new Date(t.startedAt)) / 1000);
-  });
+  let totalElapsedSeconds = $derived(
+    (() => {
+      const t = activeTimer.value;
+      if (!t || t.taskId !== task.id) return task.elapsedSeconds ?? 0;
+      if (!t.startedAt) return t.baseSeconds; // paused
+      void clock.now; // subscribe to clock ticks for reactivity
+      return t.baseSeconds + Math.max(0, Math.floor((Date.now() - new Date(t.startedAt)) / 1000));
+    })()
+  );
 
   function formatElapsed(seconds) {
     if (seconds < 60) return `${seconds}s`;
@@ -213,9 +215,9 @@
       {/if}
 
       <!-- Elapsed time (if any) -->
-      {#if totalElapsedSeconds() > 0}
+      {#if totalElapsedSeconds > 0}
         <span class="meta-chip elapsed-chip" class:elapsed-running={isTimerRunning}>
-          {formatElapsed(totalElapsedSeconds())}
+          {formatElapsed(totalElapsedSeconds)}
         </span>
       {/if}
 

@@ -50,8 +50,9 @@ export function deleteTask(taskId) {
 }
 
 export function completeTask(taskId) {
+  const now = new Date();
   _tasks = _tasks.map(t =>
-    t.id === taskId ? { ...t, isCompleted: true, completedAt: new Date(), scheduledBlocks: [] } : t
+    t.id === taskId ? { ...t, isCompleted: true, completedAt: now, scheduledBlocks: [] } : t
   );
 }
 
@@ -68,39 +69,61 @@ export function unscheduleTask(taskId) {
 }
 
 // ─── timer mutations ─────────────────────────────────────────────────────────
-// activeTimer shape: { taskId, startedAt, pausedAt, accumulatedSeconds }
+// activeTimer shape: { taskId, startedAt, baseSeconds }
 //   - startedAt: when the current running segment began (null when paused)
-//   - pausedAt: when paused (null when running)
-//   - accumulatedSeconds: total seconds from all previous segments
-// Display: accumulatedSeconds + (now - startedAt) when running, accumulatedSeconds when paused.
-// timeSessions on tasks are reserved for Phase 4 and not written here.
+//   - baseSeconds: task.elapsedSeconds at the moment the timer was started/resumed
+// Display: baseSeconds + (now - startedAt) when running, baseSeconds when paused.
+// task.elapsedSeconds is the single source of truth for total time; it is written
+// on pause and finish so it's always current.
+
+function liveSeconds(t) {
+  if (!t) return 0;
+  if (!t.startedAt) return t.baseSeconds; // paused
+  return t.baseSeconds + Math.max(0, Math.floor((Date.now() - new Date(t.startedAt)) / 1000));
+}
 
 export function startTimer(taskId) {
-  setActiveTimer({ taskId, startedAt: new Date(), pausedAt: null, accumulatedSeconds: 0 });
+  // Save current timer's elapsed back to its task before switching.
+  const current = activeTimer.value;
+  if (current && current.taskId !== taskId) {
+    finishTimer(current.taskId);
+  }
+  const task = _tasks.find(t => t.id === taskId);
+  const base = task?.elapsedSeconds ?? 0;
+  setActiveTimer({ taskId, startedAt: new Date(), baseSeconds: base });
 }
 
 export function pauseTimer(taskId) {
   const t = activeTimer.value;
-  if (!t || t.taskId !== taskId || t.pausedAt) return;
-  const now = new Date();
-  const elapsed = t.accumulatedSeconds + Math.floor((now - t.startedAt) / 1000);
-  setActiveTimer({ taskId, startedAt: null, pausedAt: now, accumulatedSeconds: elapsed });
+  if (!t || t.taskId !== taskId || !t.startedAt) return;
+  const total = liveSeconds(t);
+  // Write elapsed back to the task so it survives a reload while paused.
+  _tasks = _tasks.map(t2 => t2.id === taskId ? { ...t2, elapsedSeconds: total } : t2);
+  setActiveTimer({ taskId, startedAt: null, baseSeconds: total });
 }
 
 export function resumeTimer(taskId) {
   const t = activeTimer.value;
-  if (!t || t.taskId !== taskId || !t.pausedAt) return;
-  setActiveTimer({ taskId, startedAt: new Date(), pausedAt: null, accumulatedSeconds: t.accumulatedSeconds });
+  if (!t || t.taskId !== taskId || t.startedAt) return;
+  setActiveTimer({ taskId, startedAt: new Date(), baseSeconds: t.baseSeconds });
 }
 
+// Save elapsed back to the task and clear the timer.
 export function finishTimer(taskId) {
+  const t = activeTimer.value;
+  const total = t && t.taskId === taskId ? liveSeconds(t) : null;
   setActiveTimer(null);
+
+  if (total === null) return;
+  _tasks = _tasks.map(t2 =>
+    t2.id === taskId ? { ...t2, elapsedSeconds: total } : t2
+  );
 }
 
 // ─── schedule mutations ───────────────────────────────────────────────────────
 
-export function autoScheduleAll() {
-  const blocks = autoSchedule(_tasks, workSchedule.value);
+export function autoScheduleAll(estimationMultiplier = 1.2) {
+  const blocks = autoSchedule(_tasks, workSchedule.value, estimationMultiplier);
   if (!blocks.length) return;
   // Group blocks by taskId and apply to each task.
   const blocksByTask = new Map();

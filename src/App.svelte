@@ -7,6 +7,7 @@
   import TimerBar from './lib/components/TimerBar.svelte';
   import AddTaskModal from './lib/components/AddTaskModal.svelte';
   import SettingsModal from './lib/components/SettingsModal.svelte';
+  import InsightsModal from './lib/components/InsightsModal.svelte';
 
   initPersistence();
   initClock();
@@ -16,6 +17,7 @@
   <header class="app-header">
     <div class="app-title">TaskFlow</div>
     <div class="header-actions">
+      <button class="btn btn-ghost" onclick={() => openModal('insights')}>Insights</button>
       <button class="btn btn-ghost" onclick={() => openModal('settings')}>⚙ Settings</button>
     </div>
   </header>
@@ -38,6 +40,10 @@
 
 {#if activeModal.value === 'settings'}
   <SettingsModal />
+{/if}
+
+{#if activeModal.value === 'insights'}
+  <InsightsModal />
 {/if}
 
 <style>

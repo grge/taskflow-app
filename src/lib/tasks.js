@@ -14,7 +14,7 @@ export function createTask(description, urgencyProfile, importance, estimatedMin
     lastModifiedAt: now,
     completedAt: null,
     scheduledBlocks: [],
-    timeSessions: [],
+    elapsedSeconds: 0,
     isCompleted: false,
     isDeleted: false
   };

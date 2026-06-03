@@ -5,14 +5,16 @@
 
   let timer = $derived(activeTimer.value);
   let task = $derived(timer ? tasks.value.find(t => t.id === timer.taskId) : null);
-  let isPaused = $derived(timer?.pausedAt != null);
+  let isPaused = $derived(timer !== null && !timer.startedAt);
 
-  let elapsedSeconds = $derived(() => {
-    if (!timer) return 0;
-    const accumulated = timer.accumulatedSeconds ?? 0;
-    if (isPaused) return accumulated;
-    return accumulated + Math.floor((clock.now - new Date(timer.startedAt)) / 1000);
-  });
+  let elapsedSeconds = $derived(
+    (() => {
+      if (!timer) return 0;
+      if (!timer.startedAt) return timer.baseSeconds;
+      void clock.now; // subscribe to clock ticks for reactivity
+      return timer.baseSeconds + Math.max(0, Math.floor((Date.now() - new Date(timer.startedAt)) / 1000));
+    })()
+  );
 
   function formatElapsed(seconds) {
     const s = seconds % 60;
@@ -28,7 +30,7 @@
     <span class="timer-icon">▶</span>
     <span class="timer-task">{task.description}</span>
     <span class="timer-sep">—</span>
-    <span class="timer-elapsed">{formatElapsed(elapsedSeconds())}</span>
+    <span class="timer-elapsed">{formatElapsed(elapsedSeconds)}</span>
     <div class="timer-actions">
       {#if isPaused}
         <button class="btn btn-ghost timer-btn" onclick={() => resumeTimer(timer.taskId)}>▶ Resume</button>
