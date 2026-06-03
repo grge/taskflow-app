@@ -167,6 +167,19 @@ The **Insights modal** (header button) shows: number of timed completed tasks, m
 
 Estimation data is intentionally sparse at first — the prior of 1.2× is a reasonable starting point until ~5 tasks have been completed and timed.
 
+## Benchmarking (Phase 4)
+
+`scripts/benchmark.js` implements the exact DP solver from the spec and compares it against the greedy+local-search heuristic. Run with:
+
+```
+node scripts/benchmark.js                 # synthetic random trials
+node scripts/benchmark.js export.json     # real tasks (see script for export instructions)
+```
+
+The DP is O(n·2^n), feasible up to n=15. Initial results show the heuristic hitting optimal (0% gap) on nearly all synthetic trials up to n=15, with occasional gaps of ~0.1–0.2% at n=15. The local search (adjacent swaps + insertion moves) appears to close essentially all the gap left by greedy ordering.
+
+This is a developer tool only — not wired into the app UI.
+
 ## Known Deferred Items (from spec)
 
 - Exact DP solver and optimality gap measurement (Phase 4 benchmarking)
