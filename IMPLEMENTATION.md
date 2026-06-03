@@ -108,15 +108,15 @@ The replacement is time-based: `grabOffsetMinutes` is computed at drag start as 
 
 A timer bar sits at the bottom of the screen. Clicking ▶ on any task row starts the timer; the bar shows the task name, elapsed time (seconds-accurate, monospace), and Pause/Resume/Stop buttons.
 
-**Timer state** lives in `activeTimer` in `ui.svelte.js`: `{ taskId, startedAt, pausedAt, accumulatedSeconds }`. Display is always `accumulatedSeconds + (now - startedAt)` when running, `accumulatedSeconds` when paused. There is no summing of session arrays — elapsed is derived directly from the stored timestamps.
+**Timer state** lives in `activeTimer` in `ui.svelte.js`: `{ taskId, startedAt, baseSeconds }`. `baseSeconds` is `task.elapsedSeconds` at the moment play was pressed. Display is always `baseSeconds + (now - startedAt)` when running, `baseSeconds` when paused. There is no session array to sum — elapsed is a single arithmetic expression.
 
-`pauseTimer` computes elapsed internally from `activeTimer.startedAt` before banking it into `accumulatedSeconds`. Components call `pauseTimer(taskId)` and `resumeTimer(taskId)` with no computed values — the store is self-contained.
+`task.elapsedSeconds` is the single source of truth for total time worked on a task. It is written on pause and on stop so it survives reloads correctly — including the case where the tab is closed while the timer is running (elapsed is recovered from `startedAt` on reload).
 
-**Persistence:** `activeTimer` is saved to localStorage alongside tasks and work schedule. On reload, `startedAt` is the original start time so elapsed (including time the tab was closed) is correctly recovered.
+Starting a timer on a different task automatically stops and saves the current one first.
 
-**`clock.svelte.js`** provides a single shared `clock.now` that ticks once per second, initialized via `initClock()` in `App.svelte`. Both `TimerBar` and `TaskRow` read from this rather than maintaining their own intervals.
+`pauseTimer` writes `elapsedSeconds` back to the task immediately so a reload while paused shows the correct total. `finishTimer` does the same and clears `activeTimer`.
 
-**`timeSessions`** on tasks is reserved for Phase 4 (estimation accuracy). The timer mutations do not write to it — the half-maintained state from earlier iterations was removed.
+**Clock:** `clock.svelte.js` provides a shared `clock.now` ticking once per second. Components use `void clock.now` to subscribe to ticks for reactivity, but use `Date.now()` for the actual arithmetic — this avoids a first-tick negative display that occurred when `clock.now` was behind `startedAt` by up to one second.
 
 Stopping the timer does not complete the task — the user completes it separately via the ✓ button.
 
@@ -157,9 +157,21 @@ Redesigned from a flat list to a sectioned layout:
 - **Scheduling** section: buffer between tasks (segmented buttons)
 - Footer bar: "Reset all data" as a quiet ghost link (left), Cancel + Save (right)
 
+## Insights & Estimation (Phase 3 completion / Phase 4 partial)
+
+Completed timed tasks feed an estimation multiplier used by the auto-scheduler. The multiplier is the median of `actual / estimated` ratios across all completed tasks with `elapsedSeconds > 0`, falling back to a prior of 1.2× when fewer than 5 observations exist. It lives in `estimation.svelte.js` and derives reactively from `completedTasks` — no separate history array is maintained.
+
+`autoSchedule` accepts the multiplier and scales each task's `estimatedMinutes` before packing, so the scheduler books realistic time. Stored blocks retain the original duration (matrix rendering is unaffected).
+
+The **Insights modal** (header button) shows: number of timed completed tasks, median and mean actual/estimated ratio, current multiplier, and a scatter plot of ratio vs estimated minutes coloured by importance with a fitted regression line and y=1 reference.
+
+Estimation data is intentionally sparse at first — the prior of 1.2× is a reasonable starting point until ~5 tasks have been completed and timed.
+
 ## Known Deferred Items (from spec)
 
-- Insights / exact DP solver (Phase 4)
+- Exact DP solver and optimality gap measurement (Phase 4 benchmarking)
+- Timeseries accuracy chart in Insights (needs data density to be useful)
+- Stratified multiplier by importance/duration (investigate empirically first)
 - Manual task reordering
 - Y-stagger for overlapping blocks in the matrix
 - Custom envelope editor

@@ -812,7 +812,7 @@ const PROBLEMNESS_SCALE = [
 ];
 ```
 
-**Sorting:** Always sorted by current problemness, descending
+**Sorting:** A sort bar lets the user choose from: date added (default), name, urgency, importance, problemness, or scheduled time. The spec originally required always-on problemness sorting but this was found disorienting in practice — tasks jump around as urgency changes. The sort bar is the resolved design.
 
 **Interactions:**
 - Click description → inline edit
