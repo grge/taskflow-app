@@ -3,6 +3,7 @@
   import { workSchedule } from '../../stores/schedule.svelte.js';
   import { tasks } from '../../stores/tasks.svelte.js';
   import { previewBlock } from '../../stores/ui.svelte.js';
+  import { clock } from '../../stores/clock.svelte.js';
   import ScheduledBlock from './ScheduledBlock.svelte';
   import '../../styles/matrix.css';
 
@@ -61,6 +62,9 @@
   }
 
   const todayStr = toISODate(new Date());
+
+  // Current time as minutes-from-midnight, updated every second via clock.
+  let nowMinutes = $derived(clock.now.getHours() * 60 + clock.now.getMinutes() + clock.now.getSeconds() / 60);
 </script>
 
 <div class="matrix-panel">
@@ -127,6 +131,18 @@
 
             <!-- Blocks overlay -->
             <div class="blocks-overlay">
+              {#if isToday}
+                {@const clampedNow = Math.min(Math.max(nowMinutes, daySchedule.startMinutes), daySchedule.endMinutes)}
+                {#if clampedNow > daySchedule.startMinutes}
+                  {@const elapsedWidthPct = toPct(clampedNow) - toPct(daySchedule.startMinutes)}
+                  {@const elapsedLeftPct = toPct(daySchedule.startMinutes)}
+                  <div class="elapsed-overlay" style="left:{elapsedLeftPct}%; width:{elapsedWidthPct}%"></div>
+                {/if}
+                {#if nowMinutes >= daySchedule.startMinutes && nowMinutes <= daySchedule.endMinutes}
+                  <div class="time-rule" style="left:{toPct(nowMinutes)}%"></div>
+                {/if}
+              {/if}
+
               {#each dayBlocks as { block, task }, i}
                 {@const displayMinutes = block.totalParts > 1 ? block.durationMinutes : task.estimatedMinutes}
                 {@const { leftPct, widthPct } = blockPosition(block.startMinutes, displayMinutes)}
@@ -135,7 +151,7 @@
                   {task}
                   {leftPct}
                   {widthPct}
-                  zIndex={i + 1}
+                  zIndex={i + 10}
                   overlapOffset={0}
                 />
               {/each}

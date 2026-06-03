@@ -7,7 +7,7 @@ import { splitTaskAcrossDays } from './scheduling.js';
 // A free interval is a contiguous stretch of work time unoccupied by manual
 // blocks. Represented as { date, startMinutes, endMinutes } — always within a
 // single work day (intervals do not span day boundaries).
-function computeFreeIntervals(visibleDays, manualBlocks, fromDate) {
+function computeFreeIntervals(visibleDays, manualBlocks, fromDate, bufferMinutes = 0) {
   const fromStr = toISODate(fromDate);
   const fromMinutes = fromDate.getHours() * 60 + fromDate.getMinutes();
   const intervals = [];
@@ -19,9 +19,14 @@ function computeFreeIntervals(visibleDays, manualBlocks, fromDate) {
     if (dateStr < fromStr) continue;
 
     // Manual blocks on this day, sorted by start time.
+    // Expand each block by bufferMinutes on both sides to enforce the gap.
     const dayBlocks = manualBlocks
       .filter(b => b.date === dateStr)
-      .sort((a, b) => a.startMinutes - b.startMinutes);
+      .sort((a, b) => a.startMinutes - b.startMinutes)
+      .map(b => ({
+        startMinutes: Math.max(daySchedule.startMinutes, b.startMinutes - bufferMinutes),
+        endMinutes:   Math.min(daySchedule.endMinutes,   b.startMinutes + b.durationMinutes + bufferMinutes)
+      }));
 
     // Work period start, clamped to `from` if this is the first day.
     let cursor = dateStr === fromStr
@@ -32,7 +37,7 @@ function computeFreeIntervals(visibleDays, manualBlocks, fromDate) {
       if (block.startMinutes > cursor) {
         intervals.push({ date: dateStr, startMinutes: cursor, endMinutes: block.startMinutes });
       }
-      cursor = Math.max(cursor, block.startMinutes + block.durationMinutes);
+      cursor = Math.max(cursor, block.endMinutes);
     }
 
     if (cursor < daySchedule.endMinutes) {
@@ -54,26 +59,21 @@ function computeFreeIntervals(visibleDays, manualBlocks, fromDate) {
 // Returns an array of ScheduledBlock objects, or null if any task in the
 // sequence doesn't fit in the remaining window.
 export function packSequence(sequence, schedule, manualBlocks = []) {
+  const bufferMinutes = schedule.bufferMinutes ?? 0;
   const visibleDays = getVisibleWorkDays(schedule, 7);
   if (!visibleDays.length) return [];
 
   const result = [];
   let cursorDate = new Date();
 
-  for (const task of sequence) {
-    const intervals = computeFreeIntervals(visibleDays, manualBlocks, cursorDate);
+  for (let taskIndex = 0; taskIndex < sequence.length; taskIndex++) {
+    const task = sequence[taskIndex];
+    const isLast = taskIndex === sequence.length - 1;
+    const intervals = computeFreeIntervals(visibleDays, manualBlocks, cursorDate, bufferMinutes);
 
-    // Find the first interval (or run of consecutive intervals across day
-    // boundaries) where the task fits. Because we don't split across manual
-    // blocks, we walk intervals looking for a starting point from which
-    // splitTaskAcrossDays succeeds — meaning there are enough consecutive
-    // free work-minutes from that point to the end of the window without
-    // hitting a manual block boundary.
-    //
-    // We try each interval's start in order. splitTaskAcrossDays already
-    // handles multi-day splits at end-of-day; the only new constraint is that
-    // we must not cross a manual block. We enforce this by checking that all
-    // the blocks produced by splitTaskAcrossDays land within free intervals.
+    // We try each interval's start in order. splitTaskAcrossDays handles
+    // multi-day splits at end-of-day; we additionally check that all blocks
+    // fit within free intervals (i.e. don't cross manual block exclusion zones).
     let placed = false;
 
     for (let i = 0; i < intervals.length; i++) {
@@ -83,7 +83,7 @@ export function packSequence(sequence, schedule, manualBlocks = []) {
       );
       if (blocks === null) return null; // doesn't fit in window at all
 
-      // Check every block falls within a free interval (not inside a manual block).
+      // Check every block falls within a free interval.
       const fits = blocks.every(b =>
         intervals.some(fiv =>
           fiv.date === b.date &&
@@ -94,10 +94,11 @@ export function packSequence(sequence, schedule, manualBlocks = []) {
 
       if (fits) {
         result.push(...blocks);
-        // Advance cursor to end of last placed block.
+        // Advance cursor to end of last placed block, plus inter-task buffer
+        // (skip buffer after the last task).
         const last = blocks[blocks.length - 1];
         cursorDate = new Date(last.date + 'T00:00:00');
-        cursorDate.setMinutes(last.startMinutes + last.durationMinutes);
+        cursorDate.setMinutes(last.startMinutes + last.durationMinutes + (isLast ? 0 : bufferMinutes));
         placed = true;
         break;
       }

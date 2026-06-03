@@ -39,7 +39,9 @@ export function loadState() {
     const parsed = JSON.parse(raw);
     return {
       tasks: (parsed.tasks || []).map(reviveTask),
-      workSchedule: parsed.workSchedule || DEFAULT_WORK_SCHEDULE,
+      workSchedule: parsed.workSchedule
+        ? { bufferMinutes: 15, ...parsed.workSchedule }
+        : DEFAULT_WORK_SCHEDULE,
       activeTimer: reviveTimer(parsed.activeTimer ?? null),
     };
   } catch {

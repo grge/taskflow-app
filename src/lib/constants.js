@@ -40,6 +40,7 @@ export const PROBLEMNESS_SCALE = [
 ];
 
 export const DEFAULT_WORK_SCHEDULE = {
+  bufferMinutes: 15,
   days: [
     { dayOfWeek: 0, enabled: false, startMinutes: 540, endMinutes: 1020 },
     { dayOfWeek: 1, enabled: true,  startMinutes: 540, endMinutes: 1020 },
