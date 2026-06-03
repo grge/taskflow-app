@@ -176,7 +176,12 @@ node scripts/benchmark.js                 # synthetic random trials
 node scripts/benchmark.js export.json     # real tasks (see script for export instructions)
 ```
 
-The DP is O(n·2^n), feasible up to n=15. Initial results show the heuristic hitting optimal (0% gap) on nearly all synthetic trials up to n=15, with occasional gaps of ~0.1–0.2% at n=15. The local search (adjacent swaps + insertion moves) appears to close essentially all the gap left by greedy ordering.
+Full findings are in `SCHEDULER-BENCHMARKS.md`. Summary:
+
+- Heuristic hits optimal on >94% of random trials at n=15; mean gap <0.1%
+- DP is feasible up to n≈22 (~30s, ~32MB); impractical beyond that
+- Heuristic stays fast up to ~30 tasks; slows noticeably at n=50+ due to O(n³) local search
+- Local search does meaningful work — greedy-only cost is consistently higher
 
 This is a developer tool only — not wired into the app UI.
 

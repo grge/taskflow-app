@@ -39,7 +39,6 @@ function lowestSetBit(mask) {
 
 function exactDP(tasks, schedule) {
   const n = tasks.length;
-  if (n > 15) throw new Error(`exactDP: too many tasks (${n}, max 15)`);
 
   const now = new Date();
 
@@ -127,15 +126,25 @@ function withSilentScheduler(fn) {
   try { return fn(); } finally { console.log = _log; }
 }
 
+// Run heuristic only — no DP limit
+function runHeuristic(tasks, schedule, label) {
+  const t0 = Date.now();
+  const blocks = withSilentScheduler(() => autoSchedule(tasks, schedule));
+  const ms = Date.now() - t0;
+  const scheduled = blocks.length ? new Set(blocks.map(b => b.taskId)).size : 0;
+  const cost = blocks.length ? totalCost(blocks, tasks) : Infinity;
+  console.log(`  n=${String(tasks.length).padStart(3)}  scheduled=${scheduled}/${tasks.length}  cost=${cost.toFixed(3)}  time=${ms}ms`);
+}
+
+// Run heuristic vs DP — aborts DP if estimated memory > 512MB
 function runTrial(tasks, schedule, label) {
   if (tasks.length === 0) {
     console.log(`${label}: no tasks`);
     return;
   }
-  if (tasks.length > 15) {
-    console.log(`${label}: ${tasks.length} tasks — truncating to 15 for DP`);
-    tasks = tasks.slice(0, 15);
-  }
+
+  const n = tasks.length;
+  const estimatedMB = (8 * (1 << Math.min(n, 30))) / (1024 * 1024);
 
   const t0 = Date.now();
   const heuristicBlocks = withSilentScheduler(() => autoSchedule(tasks, schedule));
@@ -143,30 +152,35 @@ function runTrial(tasks, schedule, label) {
   const heuristicCost = heuristicBlocks.length
     ? totalCost(heuristicBlocks, tasks)
     : Infinity;
-
-  const t1 = Date.now();
-  const optimalCost = exactDP(tasks, schedule);
-  const dpTime = Date.now() - t1;
-
-  const gap = optimalCost > 0
-    ? ((heuristicCost - optimalCost) / optimalCost * 100).toFixed(2)
-    : '0.00';
-
   const scheduled = heuristicBlocks.length
     ? new Set(heuristicBlocks.map(b => b.taskId)).size
     : 0;
 
-  console.log(`\n── ${label} ──`);
-  console.log(`  Tasks:          ${tasks.length}`);
-  console.log(`  Scheduled:      ${scheduled}/${tasks.length}`);
+  console.log(`\n── ${label} (n=${n}) ──`);
+  console.log(`  Scheduled:      ${scheduled}/${n}`);
   console.log(`  Heuristic cost: ${heuristicCost.toFixed(4)}  (${heuristicTime}ms)`);
-  console.log(`  Optimal cost:   ${optimalCost.toFixed(4)}  (${dpTime}ms)`);
+
+  if (estimatedMB > 512) {
+    console.log(`  DP:             skipped (would need ~${Math.round(estimatedMB)}MB)`);
+    return;
+  }
+
+  const t1 = Date.now();
+  const optimalCost = exactDP(tasks, schedule);
+  const dpTime = Date.now() - t1;
+  const gap = optimalCost > 0
+    ? ((heuristicCost - optimalCost) / optimalCost * 100).toFixed(3)
+    : '0.000';
+
+  console.log(`  Optimal cost:   ${optimalCost.toFixed(4)}  (${dpTime}ms, ~${Math.round(estimatedMB)}MB)`);
   console.log(`  Optimality gap: ${gap}%`);
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────
 
 const exportFile = process.argv[2];
+
+const now = new Date();
 
 if (exportFile) {
   const tasks = loadFromFile(exportFile);
@@ -179,18 +193,20 @@ if (exportFile) {
   console.log('  2. Paste into a file: pbpaste > export.json');
   console.log('  3. node scripts/benchmark.js export.json\n');
 
-  // Run trials at n = 5, 8, 10, 12, 15
-  const now = new Date();
-  for (const n of [5, 8, 10, 12, 15]) {
+  // ── Section 1: heuristic vs DP (goes until DP becomes impractical) ──────────
+  // DP complexity: O(n·2^n). Memory: 8·2^n bytes.
+  // n=20 → ~8MB, ~5s.  n=22 → ~32MB, ~25s.  n=25 → ~256MB, ~4min.  n=28+ → impractical.
+  console.log('── Heuristic vs exact DP ──────────────────────────────────────────');
+  for (const n of [5, 8, 10, 12, 15, 18, 20, 22]) {
     const tasks = Array.from({ length: n }, (_, i) => randomTask(i, now));
-    runTrial(tasks, DEFAULT_SCHEDULE, `n=${n} random tasks`);
+    runTrial(tasks, DEFAULT_SCHEDULE, `n=${n}`);
   }
 
-  // Multi-trial average at n=10
-  console.log('\n── n=10, 20 random trials (mean gap) ──');
+  // ── Section 2: multi-trial gap distribution at n=15 (fast) ──────────────────
+  console.log('\n── Gap distribution: n=15, 50 trials ──────────────────────────────');
   const gaps = [];
-  for (let trial = 0; trial < 20; trial++) {
-    const tasks = Array.from({ length: 10 }, (_, i) => randomTask(i, now));
+  for (let trial = 0; trial < 50; trial++) {
+    const tasks = Array.from({ length: 15 }, (_, i) => randomTask(i, now));
     const blocks = withSilentScheduler(() => autoSchedule(tasks, DEFAULT_SCHEDULE));
     if (!blocks.length) continue;
     const hCost = totalCost(blocks, tasks);
@@ -199,5 +215,14 @@ if (exportFile) {
   }
   const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
   const max = Math.max(...gaps);
-  console.log(`  Mean gap: ${mean.toFixed(2)}%  Max gap: ${max.toFixed(2)}%  (${gaps.length} trials)`);
+  const nonZero = gaps.filter(g => g > 0.001).length;
+  console.log(`  Mean gap: ${mean.toFixed(3)}%  Max gap: ${max.toFixed(3)}%`);
+  console.log(`  Non-zero gaps: ${nonZero}/${gaps.length} trials`);
+
+  // ── Section 3: heuristic scaling — how fast is it at large n? ───────────────
+  console.log('\n── Heuristic scaling (no DP) ───────────────────────────────────────');
+  for (const n of [20, 30, 50, 75, 100]) {
+    const tasks = Array.from({ length: n }, (_, i) => randomTask(i, now));
+    runHeuristic(tasks, DEFAULT_SCHEDULE, `n=${n}`);
+  }
 }
