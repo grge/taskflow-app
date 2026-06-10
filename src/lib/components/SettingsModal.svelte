@@ -6,6 +6,7 @@
 
   let localDays = $state(workSchedule.days.map(d => ({ ...d })));
   let localBuffer = $state(workSchedule.value.bufferMinutes ?? 15);
+  let localWindowHours = $state(workSchedule.value.envelopeWindowHours ?? 48);
 
   function minutesToTime(minutes) {
     const h = String(Math.floor(minutes / 60)).padStart(2, '0');
@@ -19,7 +20,7 @@
   }
 
   function save() {
-    updateWorkSchedule({ ...workSchedule.value, days: localDays, bufferMinutes: localBuffer });
+    updateWorkSchedule({ ...workSchedule.value, days: localDays, bufferMinutes: localBuffer, envelopeWindowHours: localWindowHours });
     closeModal();
   }
 
@@ -69,6 +70,25 @@
               {/if}
             </div>
           {/each}
+        </div>
+      </section>
+
+      <section>
+        <h3 class="section-title">Display</h3>
+        <div class="field-row">
+          <div class="field-info">
+            <span class="field-label">Envelope window</span>
+            <span class="field-hint">Time horizon shown on each task card</span>
+          </div>
+          <div class="buffer-options">
+            {#each [[12,'12h'],[24,'24h'],[48,'48h'],[72,'72h'],[168,'1w']] as [h, label]}
+              <button
+                class="seg-btn"
+                class:active={localWindowHours === h}
+                onclick={() => localWindowHours = h}
+              >{label}</button>
+            {/each}
+          </div>
         </div>
       </section>
 

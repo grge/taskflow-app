@@ -37,7 +37,7 @@ export function loadState() {
     return {
       tasks: (parsed.tasks || []).map(reviveTask),
       workSchedule: parsed.workSchedule
-        ? { bufferMinutes: 15, ...parsed.workSchedule }
+        ? { bufferMinutes: 15, envelopeWindowHours: 48, ...parsed.workSchedule }
         : DEFAULT_WORK_SCHEDULE,
       activeTimer: reviveTimer(parsed.activeTimer ?? null),
     };

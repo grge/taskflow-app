@@ -1,19 +1,17 @@
 <script>
-  import { calculateProblemness, getProblemnessTier } from '../envelope.js';
   import { URGENCY_PROFILE_LABELS, URGENCY_PROFILE_ORDER } from '../constants.js';
   import { editTask, deleteTask, completeTask, unscheduleTask, startTimer } from '../../stores/tasks.svelte.js';
   import { setEditingTask, editingTaskId, activeTimer } from '../../stores/ui.svelte.js';
   import { draggableTask } from '../dnd.js';
   import { minutesToTimeString } from '../calendar.js';
   import { clock } from '../../stores/clock.svelte.js';
+  import EnvelopeChart from './EnvelopeChart.svelte';
 
-  let { task } = $props();
+  let { task, windowHours = 48 } = $props();
 
   const DURATION_OPTIONS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 480];
 
   let isTimerRunning = $derived(activeTimer.value?.taskId === task.id);
-  let problemness = $derived(calculateProblemness(task, clock.now));
-  let tier = $derived(getProblemnessTier(problemness));
   let isScheduled = $derived(task.scheduledBlocks.length > 0);
   let isEditing = $derived(editingTaskId.value === task.id);
 
@@ -90,6 +88,8 @@
 
 <div class="task-row" class:is-scheduled={isScheduled} class:timer-running={isTimerRunning}>
 
+  <EnvelopeChart {task} {windowHours} />
+
   <!-- Drag handle (unscheduled) or scheduled check (scheduled) -->
   {#if isScheduled}
     <div class="task-status scheduled" title="Scheduled — drag off matrix to unschedule">
@@ -151,13 +151,6 @@
 
     <!-- Secondary row: metadata chips -->
     <div class="task-meta">
-
-      <!-- Problemness badge -->
-      <span class="meta-badge problemness-badge" style="color:{tier.color}">
-        {tier.emoji} {tier.label}
-      </span>
-
-      <span class="meta-divider"></span>
 
       <!-- Urgency -->
       <span class="meta-chip urgency-chip">
@@ -227,6 +220,7 @@
 
 <style>
   .task-row {
+    position: relative;
     display: flex;
     align-items: flex-start;
     padding: 10px 14px 10px 10px;
@@ -235,8 +229,8 @@
     transition: background 0.1s;
   }
 
-  .task-row:hover { background: #FAFAFA; }
-  .task-row.timer-running { background: #F0FFF4; }
+  .task-row:hover { background: rgba(250,250,250,0.7); }
+  .task-row.timer-running { background: rgba(240,255,244,0.7); }
 
   /* ── Status column ── */
   .task-status {
@@ -246,6 +240,8 @@
     align-items: center;
     justify-content: center;
     margin-top: 3px;
+    position: relative;
+    z-index: 1;
   }
 
   .drag-handle {
@@ -270,6 +266,8 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
+    position: relative;
+    z-index: 1;
   }
 
   /* ── Primary row ── */
@@ -353,13 +351,6 @@
     flex-wrap: wrap;
   }
 
-  .meta-divider {
-    width: 1px;
-    height: 10px;
-    background: var(--color-border);
-    flex-shrink: 0;
-  }
-
   /* Base chip style */
   .meta-chip {
     font-size: 11px;
@@ -370,18 +361,6 @@
     padding: 1px 6px;
     white-space: nowrap;
     line-height: 18px;
-  }
-
-  /* Problemness: no border, just colored text, fixed width to prevent reflow */
-  .problemness-badge {
-    font-size: 11px;
-    font-weight: 600;
-    background: none;
-    border: none;
-    padding: 0;
-    white-space: nowrap;
-    width: 96px; /* wide enough for "I am so sorry" */
-    display: inline-block;
   }
 
   /* Urgency */

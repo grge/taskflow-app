@@ -2,6 +2,7 @@
   import { activeTasks, completedTasks, autoScheduleAll, clearSchedule } from '../../stores/tasks.svelte.js';
   import { estimationMultiplier } from '../../stores/estimation.svelte.js';
   import { openModal } from '../../stores/ui.svelte.js';
+  import { workSchedule } from '../../stores/schedule.svelte.js';
   import { calculateProblemness } from '../envelope.js';
   import TaskRow from './TaskRow.svelte';
   import '../../styles/tasklist.css';
@@ -91,7 +92,7 @@
       </div>
     {:else}
       {#each sortedTasks() as task (task.id)}
-        <TaskRow {task} />
+        <TaskRow {task} windowHours={workSchedule.value.envelopeWindowHours ?? 48} />
       {/each}
     {/if}
 
