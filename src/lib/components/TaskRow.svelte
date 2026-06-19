@@ -1,32 +1,36 @@
 <script>
-  import { URGENCY_PROFILE_LABELS, URGENCY_PROFILE_ORDER } from '../constants.js';
   import { editTask, deleteTask, completeTask, unscheduleTask, startTimer } from '../../stores/tasks.svelte.js';
-  import { setEditingTask, editingTaskId, activeTimer } from '../../stores/ui.svelte.js';
+  import { setExpandedTask, expandedTaskId, activeTimer } from '../../stores/ui.svelte.js';
   import { draggableTask } from '../dnd.js';
-  import { minutesToTimeString } from '../calendar.js';
+  import { minutesToTimeString, toISODate } from '../calendar.js';
   import { clock } from '../../stores/clock.svelte.js';
-  import EnvelopeChart from './EnvelopeChart.svelte';
+  import { pAt, pToColor, getPressureTier } from '../envelope.js';
+  import PressureSparkline from './PressureSparkline.svelte';
+  import EnvelopeEditor from './EnvelopeEditor.svelte';
 
-  let { task, windowHours = 48 } = $props();
+  let { task } = $props();
 
   const DURATION_OPTIONS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 480];
 
-  let isTimerRunning = $derived(activeTimer.value?.taskId === task.id);
-  let isScheduled = $derived(task.scheduledBlocks.length > 0);
-  let isEditing = $derived(editingTaskId.value === task.id);
+  let isTimerRunning  = $derived(activeTimer.value?.taskId === task.id);
+  let isScheduled     = $derived(task.scheduledBlocks.length > 0);
+  let isExpanded      = $derived(expandedTaskId.value === task.id);
+  let isPastScheduled = $derived(task.scheduledBlocks.some(b => b.date < clock.today));
 
-  let editValue = $state(task.description);
-  let showDurationPicker = $state(false);
+  let currentPressure = $derived(pAt(task, clock.minute));
+  let pressureTier    = $derived(getPressureTier(currentPressure));
+  let pillColor       = $derived(pToColor(currentPressure));
 
-  let totalElapsedSeconds = $derived(
-    (() => {
-      const t = activeTimer.value;
-      if (!t || t.taskId !== task.id) return task.elapsedSeconds ?? 0;
-      if (!t.startedAt) return t.baseSeconds; // paused
-      void clock.now; // subscribe to clock ticks for reactivity
-      return t.baseSeconds + Math.max(0, Math.floor((Date.now() - new Date(t.startedAt)) / 1000));
-    })()
-  );
+  let editValue     = $state(task.description);
+  let isEditingDesc = $state(false);
+
+  let totalElapsedSeconds = $derived((() => {
+    const t = activeTimer.value;
+    if (!t || t.taskId !== task.id) return task.elapsedSeconds ?? 0;
+    if (!t.startedAt) return t.baseSeconds;
+    void clock.now;
+    return t.baseSeconds + Math.max(0, Math.floor((Date.now() - new Date(t.startedAt)) / 1000));
+  })());
 
   function formatElapsed(seconds) {
     if (seconds < 60) return `${seconds}s`;
@@ -36,444 +40,477 @@
     return `${m}m`;
   }
 
+  function formatDuration(mins) {
+    if (mins >= 60 && mins % 60 === 0) return `${mins / 60}h`;
+    if (mins >= 60) return `${(mins / 60).toFixed(1)}h`;
+    return `${mins}m`;
+  }
+
+  function firstScheduledBadge(blocks) {
+    if (!blocks.length) return null;
+    const sorted = [...blocks].sort((a, b) =>
+      a.date < b.date ? -1 : a.date > b.date ? 1 : a.startMinutes - b.startMinutes
+    );
+    const b = sorted[0];
+    const d = new Date(b.date + 'T00:00:00');
+    const today = toISODate(new Date());
+    const tomorrow = toISODate(new Date(Date.now() + 24 * 60 * 60 * 1000));
+    if (b.date === today) return minutesToTimeString(b.startMinutes);
+    if (b.date === tomorrow) return `Tmrw ${minutesToTimeString(b.startMinutes)}`;
+    const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+    return dateStr;
+  }
+
   function startEdit() {
     editValue = task.description;
-    setEditingTask(task.id);
+    isEditingDesc = true;
   }
 
   function commitEdit() {
     if (editValue.trim() && editValue !== task.description) {
       editTask(task.id, { description: editValue.trim() });
     }
-    setEditingTask(null);
+    isEditingDesc = false;
   }
 
   function onDescKeydown(e) {
     if (e.key === 'Enter') commitEdit();
-    if (e.key === 'Escape') setEditingTask(null);
+    if (e.key === 'Escape') isEditingDesc = false;
   }
 
-  function cycleUrgency(dir) {
-    const idx = URGENCY_PROFILE_ORDER.indexOf(task.urgencyProfile);
-    const next = (idx + dir + URGENCY_PROFILE_ORDER.length) % URGENCY_PROFILE_ORDER.length;
-    editTask(task.id, { urgencyProfile: URGENCY_PROFILE_ORDER[next] });
+  function stepDuration(dir) {
+    const idx = DURATION_OPTIONS.indexOf(task.estimatedMinutes);
+    const next = idx === -1
+      ? (dir > 0 ? DURATION_OPTIONS[0] : DURATION_OPTIONS[DURATION_OPTIONS.length - 1])
+      : DURATION_OPTIONS[Math.max(0, Math.min(DURATION_OPTIONS.length - 1, idx + dir))];
+    editTask(task.id, { estimatedMinutes: next });
   }
 
-  function setImportance(level) {
-    editTask(task.id, { importance: level });
+  function handleEnvelopeChange({ onset, peak, peakPressure }) {
+    editTask(task.id, { onset, peak, peakPressure });
   }
 
-  function setDuration(mins) {
-    editTask(task.id, { estimatedMinutes: mins });
-    showDurationPicker = false;
-  }
-
-  function formatScheduled(blocks) {
-    if (!blocks.length) return '';
-    const b = blocks[0];
-    const d = new Date(b.date + 'T00:00:00');
-    const today = new Date(); today.setHours(0,0,0,0);
-    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
-    d.setHours(0,0,0,0);
-    let dayLabel;
-    if (d.getTime() === today.getTime()) dayLabel = 'Today';
-    else if (d.getTime() === tomorrow.getTime()) dayLabel = 'Tomorrow';
-    else dayLabel = d.toLocaleDateString('en-US', { weekday: 'short' });
-    return `${dayLabel} ${minutesToTimeString(b.startMinutes)}`;
-  }
-
-  const IMPORTANCE_LABELS = { low: 'Low', medium: 'Med', high: 'High' };
-  const IMPORTANCE_COLORS = { low: '#8BC34A', medium: '#FFA726', high: '#EF5350' };
+  const scheduledBadge = $derived(firstScheduledBadge(task.scheduledBlocks));
 </script>
 
-<div class="task-row" class:is-scheduled={isScheduled} class:timer-running={isTimerRunning}>
+<div
+  class="task-card"
+  class:is-expanded={isExpanded}
+  class:timer-running={isTimerRunning}
+  class:past-scheduled={isPastScheduled}
+>
+  <!-- ── Collapsed header ── -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="task-header" onclick={() => setExpandedTask(task.id)}>
 
-  <EnvelopeChart {task} {windowHours} />
+    <!-- Circle checkbox (complete button) -->
+    <button
+      class="check-btn"
+      style="border-color:{pillColor}"
+      title="Mark complete"
+      onclick={(e) => { e.stopPropagation(); completeTask(task.id); }}
+    >
+      {#if isTimerRunning}
+        <svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="#4CAF50"/></svg>
+      {/if}
+    </button>
 
-  <!-- Drag handle (unscheduled) or scheduled check (scheduled) -->
-  {#if isScheduled}
-    <div class="task-status scheduled" title="Scheduled — drag off matrix to unschedule">
-      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-        <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </div>
-  {:else}
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="task-status drag-handle" title="Drag to schedule" use:draggableTask={{ taskId: task.id }}>
-      <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-        <circle cx="3" cy="2.5" r="1.2"/><circle cx="7" cy="2.5" r="1.2"/>
-        <circle cx="3" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/>
-        <circle cx="3" cy="11.5" r="1.2"/><circle cx="7" cy="11.5" r="1.2"/>
-      </svg>
-    </div>
-  {/if}
-
-  <div class="task-body">
-
-    <!-- Primary row: description + action buttons -->
-    <div class="task-primary">
-      {#if isEditing}
+    <!-- Description + sub-line -->
+    <div class="task-main">
+      {#if isEditingDesc}
         <!-- svelte-ignore a11y_autofocus -->
         <input
-          class="task-description-input"
-          type="text"
+          class="desc-input"
           bind:value={editValue}
           onblur={commitEdit}
           onkeydown={onDescKeydown}
+          onclick={(e) => e.stopPropagation()}
           autofocus
         />
       {:else}
-        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-        <span class="task-description" onclick={startEdit} title="Click to edit">
-          {task.description}
-        </span>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span
+          class="task-desc"
+          title={task.description}
+          onclick={(e) => e.stopPropagation()}
+          ondblclick={(e) => { e.stopPropagation(); startEdit(); }}
+        >{task.description}</span>
       {/if}
-
-      <div class="task-actions">
-        {#if isTimerRunning}
-          <span class="timer-dot" title="Timer running">
-            <svg width="7" height="7" viewBox="0 0 7 7"><circle cx="3.5" cy="3.5" r="3.5" fill="#4CAF50"/></svg>
-          </span>
+      <span class="task-subline">
+        {#if isScheduled && scheduledBadge}
+          ◷ {scheduledBadge} · {formatDuration(task.estimatedMinutes)}
+        {:else if task.estimatedMinutes}
+          {formatDuration(task.estimatedMinutes)}
+          {#if isPastScheduled}<span class="past-flag" title="Past scheduled time"> !</span>{/if}
         {:else}
-          <button class="action-btn play-btn" title="Start timer" onclick={() => startTimer(task.id)}>
-            <svg width="11" height="12" viewBox="0 0 11 12" fill="currentColor">
-              <path d="M1 1l9 5-9 5V1z"/>
-            </svg>
-          </button>
+          Unscheduled
         {/if}
-        <button class="action-btn complete-btn" title="Mark complete" onclick={() => completeTask(task.id)}>
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M1.5 6l3.5 3.5 5.5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-      </div>
+      </span>
     </div>
 
-    <!-- Secondary row: metadata chips -->
-    <div class="task-meta">
-
-      <!-- Urgency -->
-      <span class="meta-chip urgency-chip">
-        <button class="urgency-arrow" onclick={() => cycleUrgency(-1)} title="Previous">‹</button>
-        <span class="urgency-label">{URGENCY_PROFILE_LABELS[task.urgencyProfile]}</span>
-        <button class="urgency-arrow" onclick={() => cycleUrgency(1)} title="Next">›</button>
-      </span>
-
-      <!-- Importance -->
-      <span class="meta-chip importance-chip" style="color:{IMPORTANCE_COLORS[task.importance]}">
-        {#each ['low', 'medium', 'high'] as level}
-          <button
-            class="imp-btn"
-            class:active={task.importance === level}
-            style={task.importance === level ? `background:${IMPORTANCE_COLORS[level]}` : ''}
-            onclick={() => setImportance(level)}
-            title="{IMPORTANCE_LABELS[level]} importance"
-          >{level[0].toUpperCase()}</button>
-        {/each}
-      </span>
-
-      <!-- Duration -->
-      <div class="meta-chip-wrap" style="position:relative">
-        <button
-          class="meta-chip duration-chip"
-          onclick={() => showDurationPicker = !showDurationPicker}
-          title="Estimated duration"
-        >
-          {task.estimatedMinutes >= 60
-            ? `${task.estimatedMinutes / 60 === Math.floor(task.estimatedMinutes / 60) ? task.estimatedMinutes/60 : (task.estimatedMinutes/60).toFixed(1)}h`
-            : `${task.estimatedMinutes}m`}
+    <!-- Sparkline (right) + hover actions -->
+    <div class="task-right">
+      <div class="task-actions">
+        <button class="action-btn play-btn" title="Start timer"
+          onclick={(e) => { e.stopPropagation(); startTimer(task.id); }}>
+          <svg width="10" height="11" viewBox="0 0 11 12" fill="currentColor"><path d="M1 1l9 5-9 5V1z"/></svg>
         </button>
-        {#if showDurationPicker}
+        {#if !isScheduled}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="duration-popup" onmouseleave={() => showDurationPicker = false}>
-            {#each DURATION_OPTIONS as mins}
-              <button
-                class:active={task.estimatedMinutes === mins}
-                onclick={() => setDuration(mins)}
-              >{mins >= 60 ? `${mins/60}h` : `${mins}m`}</button>
-            {/each}
+          <div class="drag-handle" title="Drag to schedule" use:draggableTask={{ taskId: task.id }}
+            onclick={(e) => e.stopPropagation()}>
+            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
+              <circle cx="3" cy="2.5" r="1.2"/><circle cx="7" cy="2.5" r="1.2"/>
+              <circle cx="3" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/>
+              <circle cx="3" cy="11.5" r="1.2"/><circle cx="7" cy="11.5" r="1.2"/>
+            </svg>
           </div>
         {/if}
       </div>
-
-      <!-- Scheduled time (if scheduled) -->
-      {#if isScheduled}
-        <span class="meta-chip scheduled-chip">
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="flex-shrink:0">
-            <rect x="1" y="2" width="8" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/>
-            <path d="M1 4.5h8M3 1v2M7 1v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-          </svg>
-          {formatScheduled(task.scheduledBlocks)}
-        </span>
-      {/if}
-
-      <!-- Elapsed time (if any) -->
-      {#if totalElapsedSeconds > 0}
-        <span class="meta-chip elapsed-chip" class:elapsed-running={isTimerRunning}>
-          {formatElapsed(totalElapsedSeconds)}
-        </span>
-      {/if}
-
+      <div class="sparkline-wrap">
+        <PressureSparkline {task} />
+      </div>
     </div>
+
   </div>
+
+  <!-- ── Expanded panel ── -->
+  {#if isExpanded}
+    <div class="task-expanded">
+
+      <!-- Duration stepper (matches mockup layout: label + − value + ) -->
+      <div class="duration-row" onclick={(e) => e.stopPropagation()}>
+        <div class="duration-label-block">
+          <span class="duration-title">Estimated time</span>
+          <span class="duration-hint">sets how big its block is</span>
+        </div>
+        <div class="duration-stepper">
+          <button class="stepper-btn" onclick={(e) => { e.stopPropagation(); stepDuration(-1); }}>−</button>
+          <span class="stepper-val">{formatDuration(task.estimatedMinutes)}</span>
+          <button class="stepper-btn" onclick={(e) => { e.stopPropagation(); stepDuration(1); }}>＋</button>
+        </div>
+      </div>
+
+      <!-- Envelope editor -->
+      <div class="envelope-section">
+        <div class="section-label">Pressure envelope — how urgent this becomes over time</div>
+        <EnvelopeEditor {task} onchange={handleEnvelopeChange} />
+      </div>
+
+      <!-- Meta row: elapsed + actions -->
+      <div class="expanded-meta">
+        <!-- Elapsed -->
+        {#if totalElapsedSeconds > 0}
+          <span class="meta-chip elapsed-chip" class:elapsed-running={isTimerRunning}>
+            {formatElapsed(totalElapsedSeconds)} elapsed
+          </span>
+        {/if}
+
+        <!-- Actions -->
+        <div class="expanded-actions">
+          {#if isScheduled}
+            <button class="action-text unschedule-btn"
+              onclick={(e) => { e.stopPropagation(); unscheduleTask(task.id); }}>
+              Unschedule
+            </button>
+          {/if}
+          <button class="action-text delete-btn"
+            onclick={(e) => { e.stopPropagation(); deleteTask(task.id); }}>
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
-  .task-row {
-    position: relative;
-    display: flex;
-    align-items: flex-start;
-    padding: 10px 14px 10px 10px;
-    border-bottom: 1px solid var(--color-border);
-    gap: 8px;
-    transition: background 0.1s;
+  /* ── Card wrapper ── */
+  .task-card {
+    background: var(--color-card);
+    border-radius: var(--radius-lg);
+    margin: 6px 10px;
+    border: 1px solid var(--color-border-light);
+    box-shadow: none;
+    transition: box-shadow 0.15s, border-color 0.15s;
   }
 
-  .task-row:hover { background: rgba(250,250,250,0.7); }
-  .task-row.timer-running { background: rgba(240,255,244,0.7); }
+  .task-card:hover {
+    border-color: var(--color-border);
+    box-shadow: 0 2px 8px rgba(42,37,33,0.07);
+  }
 
-  /* ── Status column ── */
-  .task-status {
+  .task-card.timer-running {
+    border-color: #A8D5A2;
+    box-shadow: 0 2px 12px rgba(110,139,99,0.15);
+  }
+
+  .task-card.is-expanded {
+    border-color: #E6BBAA;
+    box-shadow: 0 6px 18px rgba(200,85,60,0.10);
+  }
+
+  .task-card.past-scheduled {
+    border-left: 3px solid var(--color-accent);
+  }
+
+  /* ── Collapsed header ── */
+  .task-header {
+    display: flex;
+    align-items: center;
+    padding: 10px 10px 10px 12px;
+    gap: 8px;
+    cursor: pointer;
+    min-width: 0;
+  }
+
+  /* ── Circle checkbox ── */
+  .check-btn {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2.5px solid var(--color-border);
+    background: transparent;
     flex-shrink: 0;
-    width: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-top: 3px;
-    position: relative;
-    z-index: 1;
+    transition: border-color 0.15s, background 0.15s;
+    padding: 0;
   }
 
-  .drag-handle {
-    color: #CCCCCC;
-    cursor: grab;
-    touch-action: none;
-    user-select: none;
-    transition: color 0.15s;
+  .check-btn:hover {
+    background: var(--color-panel);
   }
 
-  .task-row:hover .drag-handle { color: #AAAAAA; }
-  .drag-handle:active { cursor: grabbing; }
-
-  .scheduled {
-    color: #4CAF50;
-  }
-
-  /* ── Body ── */
-  .task-body {
+  /* ── Description block ── */
+  .task-main {
     flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 5px;
-    position: relative;
-    z-index: 1;
+    gap: 2px;
   }
 
-  /* ── Primary row ── */
-  .task-primary {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-  }
-
-  .task-description {
-    flex: 1;
+  .task-desc {
     font-size: 14px;
     font-weight: 500;
     color: var(--color-text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    cursor: text;
-    min-width: 0;
+    line-height: 1.3;
+    cursor: default;
+    width: fit-content;
+    max-width: 100%;
   }
 
-  .task-description:hover { color: var(--color-primary); }
+  .task-desc:hover {
+    cursor: text;
+  }
 
-  .task-description-input {
-    flex: 1;
+  .desc-input {
+    width: 100%;
     font-size: 14px;
     font-weight: 500;
+    font-family: inherit;
     border: none;
-    border-bottom: 2px solid var(--color-primary);
+    border-bottom: 1.5px solid var(--color-text-muted);
     background: transparent;
     outline: none;
-    min-width: 0;
     padding: 0;
+    color: var(--color-text);
+    line-height: 1.3;
   }
 
-  /* ── Action buttons (appear on hover) ── */
+  .task-subline {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .past-flag {
+    color: var(--color-accent);
+    font-weight: 700;
+  }
+
+  /* ── Right side: actions + sparkline ── */
+  .task-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
   .task-actions {
     display: flex;
     align-items: center;
     gap: 2px;
-    flex-shrink: 0;
-    opacity: 0;
-    transition: opacity 0.15s;
+    width: 0;
+    overflow: hidden;
+    transition: width 0.15s;
   }
 
-  .task-row:hover .task-actions,
-  .task-row.timer-running .task-actions { opacity: 1; }
+  .task-card:hover .task-actions,
+  .task-card.timer-running .task-actions { width: auto; overflow: visible; }
 
   .action-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: transparent;
     cursor: pointer;
     color: var(--color-text-muted);
     transition: background 0.1s, color 0.1s;
   }
 
-  .play-btn:hover { background: #E8F5E9; color: #4CAF50; }
-  .complete-btn:hover { background: #E3F2FD; color: var(--color-primary); }
+  .play-btn:hover { background: rgba(110,139,99,0.12); color: #6E8B63; }
 
-  .timer-dot {
+  .drag-handle {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
+    color: var(--color-border);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+  .drag-handle:active { cursor: grabbing; }
+
+  .sparkline-wrap { flex-shrink: 0; }
+
+  /* ── Expanded panel ── */
+  .task-expanded {
+    padding: 0 14px 14px;
+    border-top: 1px solid var(--color-border-light);
+  }
+
+  .desc-input {
+    width: 100%;
+    font-size: 15px;
+    font-weight: 500;
+    border: none;
+    border-bottom: 2px solid var(--color-text-muted);
+    background: transparent;
+    outline: none;
+    padding: 0;
+    color: var(--color-text);
+  }
+
+  /* ── Duration stepper ── */
+  .duration-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0 8px;
+  }
+
+  .duration-label-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .duration-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .duration-hint {
+    font-size: 11px;
+    color: var(--color-text-faint);
+  }
+
+  .duration-stepper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .stepper-btn {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--color-border);
+    background: var(--color-card);
+    color: var(--color-text-muted);
+    border-radius: var(--radius-sm);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.1s, color 0.1s;
     flex-shrink: 0;
   }
+  .stepper-btn:hover { border-color: var(--color-text-muted); color: var(--color-text); }
 
-  /* ── Meta row ── */
-  .task-meta {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-wrap: wrap;
-  }
-
-  /* Base chip style */
-  .meta-chip {
-    font-size: 11px;
-    color: var(--color-text-muted);
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    padding: 1px 6px;
-    white-space: nowrap;
-    line-height: 18px;
-  }
-
-  /* Urgency */
-  .urgency-chip {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    padding: 0;
-    overflow: hidden;
-  }
-
-  .urgency-arrow {
-    border: none;
-    background: transparent;
-    color: var(--color-text-muted);
-    font-size: 14px;
-    line-height: 1;
-    padding: 0 4px;
-    cursor: pointer;
-    transition: color 0.1s;
-  }
-
-  .urgency-arrow:hover { color: var(--color-primary); }
-
-  .urgency-label {
-    font-size: 11px;
-    color: var(--color-text-muted);
-    padding: 0 2px;
-    white-space: nowrap;
-    width: 92px; /* wide enough for "Next Couple Hours" */
+  .stepper-val {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--color-text);
+    min-width: 44px;
     text-align: center;
   }
 
-  /* Importance: inline segmented buttons */
-  .importance-chip {
-    padding: 0;
-    overflow: hidden;
-    display: flex;
-    gap: 0;
-  }
+  /* ── Envelope section ── */
+  .envelope-section { margin: 2px 0 8px; }
 
-  .imp-btn {
-    padding: 1px 6px;
-    border: none;
-    background: transparent;
-    font-size: 11px;
-    font-weight: 600;
+  .section-label {
+    font-size: 12.5px;
+    font-weight: 400;
     color: var(--color-text-muted);
-    cursor: pointer;
-    line-height: 18px;
-    transition: background 0.1s, color 0.1s;
+    margin-bottom: 8px;
   }
 
-  .imp-btn + .imp-btn { border-left: 1px solid var(--color-border); }
-
-  .imp-btn.active { color: white; }
-  .imp-btn:not(.active):hover { background: var(--color-bg); color: var(--color-text); }
-
-  /* Duration: clickable */
-  .duration-chip {
-    cursor: pointer;
-    font-weight: 500;
-    transition: border-color 0.1s, color 0.1s;
-  }
-
-  .duration-chip:hover {
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-  }
-
-  .meta-chip-wrap { position: relative; }
-
-  /* Scheduled chip */
-  .scheduled-chip {
+  /* ── Meta row ── */
+  .expanded-meta {
     display: flex;
     align-items: center;
-    gap: 4px;
-    color: #4CAF50;
-    border-color: #C8E6C9;
-    background: #F1F8E9;
-  }
-
-  /* Elapsed chip */
-  .elapsed-chip { font-variant-numeric: tabular-nums; }
-  .elapsed-chip.elapsed-running { color: #4CAF50; border-color: #C8E6C9; background: #F1F8E9; }
-
-  /* Duration popup */
-  .duration-popup {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    background: white;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    z-index: 50;
-    display: flex;
+    gap: 6px;
     flex-wrap: wrap;
-    padding: 4px;
-    gap: 2px;
-    width: 120px;
+    margin-top: 10px;
   }
 
-  .duration-popup button {
-    padding: 4px 8px;
-    border: none;
+  .meta-chip {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: 3px 8px;
+    white-space: nowrap;
+  }
+
+  .elapsed-chip { font-variant-numeric: tabular-nums; }
+  .elapsed-chip.elapsed-running { color: #6E8B63; border-color: #A8D5A2; background: rgba(110,139,99,0.08); }
+
+  .expanded-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 10px;
+  }
+
+  .action-text {
+    font-size: 12px;
     background: none;
-    font-size: 11px;
-    border-radius: 3px;
+    border: none;
     cursor: pointer;
-    width: calc(33% - 2px);
+    padding: 0;
+    color: var(--color-text-faint);
+    transition: color 0.1s;
+    font-weight: 500;
   }
+  .unschedule-btn:hover { color: var(--color-text-muted); }
+  .delete-btn:hover { color: var(--color-accent); }
 
-  .duration-popup button:hover { background: var(--color-bg); }
-  .duration-popup button.active { background: var(--color-primary); color: white; }
 </style>

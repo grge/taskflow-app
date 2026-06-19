@@ -1,13 +1,11 @@
 <script>
-  import { closeModal } from '../../stores/ui.svelte.js';
+  import { closeModal, setActiveTab } from '../../stores/ui.svelte.js';
   import { completedTasks } from '../../stores/tasks.svelte.js';
   import { estimationMultiplier } from '../../stores/estimation.svelte.js';
+  import { pToColor } from '../envelope.js';
 
-  const IMPORTANCE_COLORS = {
-    low:    '#4CAF50',
-    medium: '#FFA726',
-    high:   '#EF5350',
-  };
+  let { inline = false } = $props();
+  function dismiss() { inline ? setActiveTab('plan') : closeModal(); }
 
   // SVG plot dimensions
   const W = 420, H = 260;
@@ -20,8 +18,7 @@
       .map(t => ({
         estimatedMinutes: t.estimatedMinutes,
         actualMinutes: t.elapsedSeconds / 60,
-        importance: t.importance,
-        urgencyProfile: t.urgencyProfile,
+        peakPressure: t.peakPressure ?? 0.5,
       }))
   );
   const n = $derived(entries.length);
@@ -76,13 +73,13 @@
   }
 </script>
 
-<div class="modal-backdrop" onclick={closeModal} role="dialog" aria-modal="true">
+<div class={inline ? 'inline-wrap' : 'modal-backdrop'} onclick={inline ? undefined : dismiss} role="dialog" aria-modal="true">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="modal insights-modal" onclick={(e) => e.stopPropagation()} role="document">
 
     <div class="modal-header">
       <h2>Insights</h2>
-      <button class="close-btn" onclick={closeModal} aria-label="Close">×</button>
+      <button class="close-btn" onclick={dismiss} aria-label="Close">×</button>
     </div>
 
     <div class="stats-row">
@@ -161,12 +158,12 @@
               cx={xScale(entry.estimatedMinutes)}
               cy={yScale(ratios[i])}
               r="5"
-              fill={IMPORTANCE_COLORS[entry.importance] ?? '#888'}
+              fill={pToColor(entry.peakPressure)}
               opacity="0.85"
               stroke="white"
               stroke-width="1"
             >
-              <title>{entry.urgencyProfile} · {entry.estimatedMinutes}m est · {entry.actualMinutes.toFixed(0)}m actual</title>
+              <title>{entry.estimatedMinutes}m est · {entry.actualMinutes.toFixed(0)}m actual</title>
             </circle>
           {/each}
         </svg>
@@ -177,12 +174,7 @@
 
         <!-- Legend -->
         <div class="legend">
-          {#each Object.entries(IMPORTANCE_COLORS) as [imp, color]}
-            <span class="legend-item">
-              <svg width="10" height="10"><circle cx="5" cy="5" r="4" fill={color} /></svg>
-              {imp}
-            </span>
-          {/each}
+          <span class="legend-item">color = peak pressure</span>
           <span class="legend-item">
             <svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#4A90E2" stroke-width="1.5" stroke-dasharray="5 3"/></svg>
             fit
@@ -192,7 +184,7 @@
     {/if}
 
     <div class="modal-footer">
-      <button class="btn btn-primary" onclick={closeModal}>Done</button>
+      <button class="btn btn-primary" onclick={dismiss}>Done</button>
     </div>
 
   </div>

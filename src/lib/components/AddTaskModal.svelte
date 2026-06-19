@@ -1,26 +1,61 @@
 <script>
-  import { openModal, closeModal } from '../../stores/ui.svelte.js';
+  import { closeModal } from '../../stores/ui.svelte.js';
   import { addTask } from '../../stores/tasks.svelte.js';
-  import { URGENCY_PROFILE_LABELS, URGENCY_PROFILE_ORDER } from '../constants.js';
+  import EnvelopeEditor from './EnvelopeEditor.svelte';
 
-  let description = $state('');
-  let urgencyProfile = $state('cob-today');
-  let importance = $state('medium');
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  function defaultOnset() { return new Date(Date.now() + DAY_MS); }
+  function defaultPeak()  { return new Date(Date.now() + 3 * DAY_MS); }
+
+  let description     = $state('');
+  let onset           = $state(defaultOnset());
+  let peak            = $state(defaultPeak());
+  let peakPressure    = $state(0.7);
   let estimatedMinutes = $state(30);
+
+  // Proxy task object for the EnvelopeEditor preview
+  let previewTask = $derived({ onset, peak, peakPressure, createdAt: new Date() });
+
+  function toDatetimeLocal(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function fromDatetimeLocal(s) {
+    return s ? new Date(s) : null;
+  }
+
+  function formatDuration(mins) {
+    if (mins >= 60 && mins % 60 === 0) return `${mins / 60}h`;
+    if (mins >= 60) return `${(mins / 60).toFixed(1)}h`;
+    return `${mins}m`;
+  }
 
   function submit() {
     if (!description.trim()) return;
-    addTask(description.trim(), urgencyProfile, importance, estimatedMinutes);
+    addTask(description.trim(), onset, peak, peakPressure, estimatedMinutes);
     closeModal();
-    description = '';
-    urgencyProfile = 'cob-today';
-    importance = 'medium';
+    reset();
+  }
+
+  function reset() {
+    description      = '';
+    onset            = defaultOnset();
+    peak             = defaultPeak();
+    peakPressure     = 0.7;
     estimatedMinutes = 30;
   }
 
   function onKeydown(e) {
     if (e.key === 'Escape') closeModal();
-    if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') submit();
+    if (e.key === 'Enter' && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') submit();
+  }
+
+  function handleEnvelopeChange({ onset: o, peak: p, peakPressure: pp }) {
+    onset = o;
+    peak  = p;
+    peakPressure = pp;
   }
 </script>
 
@@ -32,50 +67,39 @@
     <div class="form-field">
       <label for="task-desc">Description</label>
       <!-- svelte-ignore a11y_autofocus -->
-      <input
-        id="task-desc"
-        type="text"
-        bind:value={description}
-        placeholder="What needs doing?"
-        autofocus
-      />
-    </div>
-
-    <div class="form-field">
-      <label for="task-urgency">Urgency</label>
-      <select id="task-urgency" bind:value={urgencyProfile}>
-        {#each URGENCY_PROFILE_ORDER as profile}
-          <option value={profile}>{URGENCY_PROFILE_LABELS[profile]}</option>
-        {/each}
-      </select>
-    </div>
-
-    <div class="form-field">
-      <label>Importance</label>
-      <div class="importance-toggle">
-        {#each ['low', 'medium', 'high'] as level}
-          <button
-            class:active={importance === level}
-            onclick={() => importance = level}
-          >
-            {level.charAt(0).toUpperCase()}
-          </button>
-        {/each}
-      </div>
+      <input id="task-desc" type="text" bind:value={description} placeholder="What needs doing?" autofocus />
     </div>
 
     <div class="form-field">
       <label for="task-duration">Estimated Duration</label>
       <div class="duration-row">
-        <input
-          id="task-duration"
-          type="range"
-          min="5"
-          max="480"
-          step="5"
-          bind:value={estimatedMinutes}
-        />
-        <span class="duration-value">{estimatedMinutes}m</span>
+        <input id="task-duration" type="range" min="5" max="480" step="5" bind:value={estimatedMinutes} />
+        <span class="duration-value">{formatDuration(estimatedMinutes)}</span>
+      </div>
+    </div>
+
+    <div class="form-field">
+      <label>Pressure Envelope</label>
+      <div class="envelope-row">
+        <div class="datetime-fields">
+          <label class="sub-label">
+            Onset
+            <input type="datetime-local" value={toDatetimeLocal(onset)}
+              oninput={(e) => { const d = fromDatetimeLocal(e.target.value); if (d) onset = d; }} />
+          </label>
+          <label class="sub-label">
+            Peak
+            <input type="datetime-local" value={toDatetimeLocal(peak)}
+              oninput={(e) => { const d = fromDatetimeLocal(e.target.value); if (d) peak = d; }} />
+          </label>
+          <label class="sub-label">
+            Severity {Math.round(peakPressure * 100)}%
+            <input type="range" min="0.05" max="1" step="0.05" bind:value={peakPressure} />
+          </label>
+        </div>
+        <div class="envelope-preview">
+          <EnvelopeEditor task={previewTask} onchange={handleEnvelopeChange} />
+        </div>
       </div>
     </div>
 
@@ -87,34 +111,6 @@
 </div>
 
 <style>
-  .importance-toggle {
-    display: flex;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    overflow: hidden;
-    width: fit-content;
-  }
-
-  .importance-toggle button {
-    padding: 6px 20px;
-    border: none;
-    background: transparent;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    transition: background 0.1s, color 0.1s;
-  }
-
-  .importance-toggle button.active {
-    background: var(--color-primary);
-    color: white;
-  }
-
-  .importance-toggle button + button {
-    border-left: 1px solid var(--color-border);
-  }
-
   .duration-row {
     display: flex;
     align-items: center;
@@ -131,5 +127,37 @@
     font-weight: 600;
     min-width: 40px;
     text-align: right;
+  }
+
+  .envelope-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .datetime-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .sub-label {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .sub-label input {
+    font-size: 12px;
+    padding: 3px 6px;
+  }
+
+  .envelope-preview {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: white;
   }
 </style>

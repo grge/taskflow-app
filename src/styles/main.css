@@ -5,20 +5,39 @@
 }
 
 :root {
-  --color-bg: #F5F5F5;
-  --color-surface: #FFFFFF;
-  --color-border: #E0E0E0;
-  --color-text: #333333;
-  --color-text-muted: #888888;
-  --color-primary: #4A90E2;
-  --color-primary-hover: #357ABD;
-  --color-block: #4A90E2;
+  /* Warm palette from mockup */
+  --color-bg:           #E9E2D6;
+  --color-surface:      #FBF7EF;
+  --color-panel:        #F4EEE2;
+  --color-card:         #FFFFFF;
+  --color-border:       #DCD3C4;
+  --color-border-light: #EAE1D2;
+
+  /* Text */
+  --color-text:         #2A2521;
+  --color-text-muted:   #6F665C;
+  --color-text-faint:   #9E9488;
+
+  /* Primary action: near-black like the mockup's Auto-schedule button */
+  --color-primary:      #2A2521;
+  --color-primary-hover:#1A1612;
+
+  /* Accent (used sparingly for links/focus) */
+  --color-accent:       #C8553C;
+
+  /* Radius */
+  --radius-sm:  6px;
+  --radius:     9px;
+  --radius-lg:  12px;
+
+  /* Legacy alias so existing components don't break */
+  --color-primary-old:  #4A90E2;
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 16px;
   --spacing-lg: 24px;
-  --radius: 6px;
-  --font-body: Inter, 'SF Pro', 'Segoe UI', system-ui, sans-serif;
+
+  --font-body: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: Menlo, Consolas, 'Courier New', monospace;
 }
 
@@ -26,10 +45,11 @@ body {
   font-family: var(--font-body);
   background: var(--color-bg);
   color: var(--color-text);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
   height: 100vh;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 #app {
@@ -49,29 +69,31 @@ input, select, textarea {
   font-size: inherit;
 }
 
-/* Modal backdrop */
+/* ── Modal backdrop ── */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(42, 37, 33, 0.35);
   z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
+  backdrop-filter: blur(2px);
 }
 
 .modal {
-  background: var(--color-surface);
-  border-radius: var(--radius);
+  background: var(--color-card);
+  border-radius: var(--radius-lg);
   padding: var(--spacing-lg);
   min-width: 360px;
   max-width: 480px;
   width: 90%;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 40px rgba(42, 37, 33, 0.18);
+  border: 1px solid var(--color-border);
 }
 
 .modal h2 {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 600;
   margin-bottom: var(--spacing-md);
 }
@@ -83,53 +105,80 @@ input, select, textarea {
   margin-top: var(--spacing-md);
 }
 
+/* ── Buttons ── */
 .btn {
-  padding: 6px 16px;
+  padding: 7px 16px;
   border-radius: var(--radius);
   border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-weight: 500;
-  transition: background 0.15s;
+  background: var(--color-card);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
-.btn:hover { background: var(--color-bg); }
+.btn:hover {
+  background: var(--color-panel);
+  color: var(--color-text);
+}
 
 .btn-primary {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: white;
+  color: #FBF7EF;
 }
 
-.btn-primary:hover { background: var(--color-primary-hover); border-color: var(--color-primary-hover); }
+.btn-primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
 
 .btn-ghost {
   border-color: transparent;
   background: transparent;
 }
 
-.btn-ghost:hover { background: var(--color-bg); }
+.btn-ghost:hover { background: var(--color-panel); }
 
+.btn-danger-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-accent);
+}
+
+.btn-danger-ghost:hover {
+  background: rgba(200, 85, 60, 0.07);
+  border-color: rgba(200, 85, 60, 0.25);
+}
+
+.btn-sm {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+/* ── Form fields ── */
 .form-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   margin-bottom: var(--spacing-md);
 }
 
 .form-field label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
 }
 
 .form-field input,
 .form-field select {
-  padding: 8px 10px;
+  padding: 8px 11px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-text);
   outline: none;
@@ -138,5 +187,5 @@ input, select, textarea {
 
 .form-field input:focus,
 .form-field select:focus {
-  border-color: var(--color-primary);
+  border-color: var(--color-text-muted);
 }

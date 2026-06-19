@@ -1,12 +1,14 @@
 <script>
-  import { closeModal } from '../../stores/ui.svelte.js';
+  import { closeModal, setActiveTab } from '../../stores/ui.svelte.js';
   import { workSchedule, updateWorkSchedule } from '../../stores/schedule.svelte.js';
+
+  let { inline = false } = $props();
+  function dismiss() { inline ? setActiveTab('plan') : closeModal(); }
 
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   let localDays = $state(workSchedule.days.map(d => ({ ...d })));
   let localBuffer = $state(workSchedule.value.bufferMinutes ?? 15);
-  let localWindowHours = $state(workSchedule.value.envelopeWindowHours ?? 48);
 
   function minutesToTime(minutes) {
     const h = String(Math.floor(minutes / 60)).padStart(2, '0');
@@ -20,8 +22,8 @@
   }
 
   function save() {
-    updateWorkSchedule({ ...workSchedule.value, days: localDays, bufferMinutes: localBuffer, envelopeWindowHours: localWindowHours });
-    closeModal();
+    updateWorkSchedule({ ...workSchedule.value, days: localDays, bufferMinutes: localBuffer });
+    dismiss();
   }
 
   function hardReset() {
@@ -31,13 +33,13 @@
   }
 </script>
 
-<div class="modal-backdrop" onclick={closeModal} role="dialog" aria-modal="true">
+<div class={inline ? 'inline-wrap' : 'modal-backdrop'} onclick={inline ? undefined : dismiss} role="dialog" aria-modal="true">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="modal settings-modal" onclick={(e) => e.stopPropagation()} role="document">
 
     <div class="modal-header">
       <h2>Settings</h2>
-      <button class="close-btn" onclick={closeModal} aria-label="Close">×</button>
+      <button class="close-btn" onclick={dismiss} aria-label="Close">×</button>
     </div>
 
     <div class="settings-body">
@@ -74,25 +76,6 @@
       </section>
 
       <section>
-        <h3 class="section-title">Display</h3>
-        <div class="field-row">
-          <div class="field-info">
-            <span class="field-label">Envelope window</span>
-            <span class="field-hint">Time horizon shown on each task card</span>
-          </div>
-          <div class="buffer-options">
-            {#each [[12,'12h'],[24,'24h'],[48,'48h'],[72,'72h'],[168,'1w']] as [h, label]}
-              <button
-                class="seg-btn"
-                class:active={localWindowHours === h}
-                onclick={() => localWindowHours = h}
-              >{label}</button>
-            {/each}
-          </div>
-        </div>
-      </section>
-
-      <section>
         <h3 class="section-title">Scheduling</h3>
         <div class="field-row">
           <div class="field-info">
@@ -116,7 +99,7 @@
     <div class="modal-footer">
       <button class="btn btn-danger-ghost" onclick={hardReset}>Reset all data</button>
       <div class="footer-actions">
-        <button class="btn" onclick={closeModal}>Cancel</button>
+        <button class="btn" onclick={dismiss}>Cancel</button>
         <button class="btn btn-primary" onclick={save}>Save</button>
       </div>
     </div>

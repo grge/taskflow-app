@@ -1,4 +1,4 @@
-import { accumulatedProblemness } from './envelope.js';
+import { accumulatedPressure } from './envelope.js';
 import { advanceWork, getVisibleWorkDays, toISODate } from './calendar.js';
 import { splitTaskAcrossDays } from './scheduling.js';
 
@@ -58,7 +58,8 @@ function computeFreeIntervals(visibleDays, manualBlocks, fromDate, bufferMinutes
 //
 // Returns an array of ScheduledBlock objects, or null if any task in the
 // sequence doesn't fit in the remaining window.
-export function packSequence(sequence, schedule, manualBlocks = []) {
+export function packSequence(sequence, schedule, manualBlocks = [], fixedBlocks = []) {
+  const allBlocking = [...manualBlocks, ...fixedBlocks];
   const bufferMinutes = schedule.bufferMinutes ?? 0;
   const visibleDays = getVisibleWorkDays(schedule, 7);
   if (!visibleDays.length) return [];
@@ -69,7 +70,7 @@ export function packSequence(sequence, schedule, manualBlocks = []) {
   for (let taskIndex = 0; taskIndex < sequence.length; taskIndex++) {
     const task = sequence[taskIndex];
     const isLast = taskIndex === sequence.length - 1;
-    const intervals = computeFreeIntervals(visibleDays, manualBlocks, cursorDate, bufferMinutes);
+    const intervals = computeFreeIntervals(visibleDays, allBlocking, cursorDate, bufferMinutes);
 
     // We try each interval's start in order. splitTaskAcrossDays handles
     // multi-day splits at end-of-day; we additionally check that all blocks
@@ -129,7 +130,7 @@ export function totalCost(blocks, tasks) {
     );
     const completionTime = new Date(last.date + 'T00:00:00');
     completionTime.setMinutes(last.startMinutes + last.durationMinutes);
-    cost += accumulatedProblemness(task, completionTime);
+    cost += accumulatedPressure(task, completionTime);
   }
   return cost;
 }
@@ -138,8 +139,8 @@ export function totalCost(blocks, tasks) {
 
 function greedyScore(task, currentWorkTime, schedule) {
   const completionTime = advanceWork(currentWorkTime, task.estimatedMinutes, schedule);
-  const nowCost = accumulatedProblemness(task, currentWorkTime);
-  const completeCost = accumulatedProblemness(task, completionTime);
+  const nowCost = accumulatedPressure(task, currentWorkTime);
+  const completeCost = accumulatedPressure(task, completionTime);
   return (completeCost - nowCost) / (task.estimatedMinutes / 60);
 }
 
@@ -152,7 +153,7 @@ function scaledTask(task, multiplier) {
   return { ...task, estimatedMinutes: Math.round(task.estimatedMinutes * multiplier) };
 }
 
-export function autoSchedule(allTasks, schedule, estimationMultiplier = 1) {
+export function autoSchedule(allTasks, schedule, fixedBlocks = [], estimationMultiplier = 1) {
   const manualBlocks = allTasks
     .filter(t => t.scheduledBlocks.length > 0)
     .flatMap(t => t.scheduledBlocks);
@@ -189,7 +190,7 @@ export function autoSchedule(allTasks, schedule, estimationMultiplier = 1) {
   }
 
   // ── Phase 2: pack and check window capacity ──────────────────────────────────
-  let blocks = packSequence(sequence, schedule, manualBlocks);
+  let blocks = packSequence(sequence, schedule, manualBlocks, fixedBlocks);
 
   if (blocks === null) {
     // Some tasks don't fit. Binary-search for the longest prefix that does fit,
@@ -197,13 +198,13 @@ export function autoSchedule(allTasks, schedule, estimationMultiplier = 1) {
     let lo = 0, hi = sequence.length;
     while (lo < hi) {
       const mid = Math.floor((lo + hi + 1) / 2);
-      if (packSequence(sequence.slice(0, mid), schedule, manualBlocks) !== null) {
+      if (packSequence(sequence.slice(0, mid), schedule, manualBlocks, fixedBlocks) !== null) {
         lo = mid;
       } else {
         hi = mid - 1;
       }
     }
-    blocks = lo > 0 ? packSequence(sequence.slice(0, lo), schedule, manualBlocks) : [];
+    blocks = lo > 0 ? packSequence(sequence.slice(0, lo), schedule, manualBlocks, fixedBlocks) : [];
     console.log(`[autoSchedule] window full: scheduled ${lo}/${sequence.length} tasks`);
   }
 
@@ -223,7 +224,7 @@ export function autoSchedule(allTasks, schedule, estimationMultiplier = 1) {
     // Phase A: adjacent swaps
     for (let i = 0; i < schedulable.length - 1; i++) {
       [schedulable[i], schedulable[i + 1]] = [schedulable[i + 1], schedulable[i]];
-      const newBlocks = packSequence(schedulable, schedule, manualBlocks);
+      const newBlocks = packSequence(schedulable, schedule, manualBlocks, fixedBlocks);
       if (newBlocks !== null) {
         const newCost = totalCost(newBlocks, schedulable);
         if (newCost < cost) {
@@ -246,7 +247,7 @@ export function autoSchedule(allTasks, schedule, estimationMultiplier = 1) {
 
       for (let j = 0; j <= schedulable.length; j++) {
         schedulable.splice(j, 0, task);
-        const newBlocks = packSequence(schedulable, schedule, manualBlocks);
+        const newBlocks = packSequence(schedulable, schedule, manualBlocks, fixedBlocks);
         if (newBlocks !== null) {
           const newCost = totalCost(newBlocks, schedulable);
           if (newCost < bestCost) {
@@ -259,7 +260,7 @@ export function autoSchedule(allTasks, schedule, estimationMultiplier = 1) {
 
       schedulable.splice(bestPos, 0, task);
       if (bestCost < cost) {
-        blocks = packSequence(schedulable, schedule, manualBlocks);
+        blocks = packSequence(schedulable, schedule, manualBlocks, fixedBlocks);
         cost = bestCost;
         improved = true;
         break;

@@ -2,13 +2,13 @@ import { loadState, saveState } from '../lib/persistence.js';
 import { createTask, updateTask } from '../lib/tasks.js';
 import { placeBlockOnTask, removeBlocksForTask } from '../lib/scheduling.js';
 import { autoSchedule } from '../lib/scheduler.js';
-import { workSchedule } from './schedule.svelte.js';
+import { workSchedule, fixedBlocks } from './schedule.svelte.js';
 import { activeTimer, setActiveTimer } from './ui.svelte.js';
+import { toISODate } from '../lib/calendar.js';
 
 const _initialState = loadState();
 let _tasks = $state(_initialState.tasks);
 
-// Restore active timer from localStorage on load.
 if (_initialState.activeTimer) {
   setActiveTimer(_initialState.activeTimer);
 }
@@ -29,20 +29,46 @@ export const completedTasks = {
   }
 };
 
+// Tasks that have scheduled blocks dated before today — shown with a visual flag.
+export const pastScheduledTasks = {
+  get value() {
+    const todayStr = toISODate(new Date());
+    return _tasks.filter(t =>
+      !t.isCompleted && !t.isDeleted &&
+      t.scheduledBlocks.some(b => b.date < todayStr)
+    );
+  }
+};
+
 export function initPersistence() {
   $effect(() => {
-    saveState(_tasks, workSchedule.value, activeTimer.value);
+    saveState(_tasks, workSchedule.value, activeTimer.value, fixedBlocks.value);
   });
 }
 
-export function addTask(description, urgencyProfile, importance, estimatedMinutes) {
-  const task = createTask(description, urgencyProfile, importance, estimatedMinutes);
+export function addTask(description, onset, peak, peakPressure, estimatedMinutes) {
+  const task = createTask(description, onset, peak, peakPressure, estimatedMinutes);
   _tasks = [..._tasks, task];
   return task;
 }
 
 export function editTask(taskId, patch) {
-  _tasks = _tasks.map(t => t.id === taskId ? updateTask(t, patch) : t);
+  _tasks = _tasks.map(t => {
+    if (t.id !== taskId) return t;
+    const updated = updateTask(t, patch);
+    // Keep scheduled block durations in sync when estimatedMinutes changes
+    if ('estimatedMinutes' in patch && updated.scheduledBlocks.length > 0) {
+      const newTotal = patch.estimatedMinutes;
+      updated.scheduledBlocks = updated.scheduledBlocks.map((b, i, arr) => {
+        // Last block gets remainder to avoid rounding drift
+        const share = i < arr.length - 1
+          ? Math.round(newTotal * (b.durationMinutes / t.estimatedMinutes) / 15) * 15
+          : newTotal - arr.slice(0, i).reduce((s, prev) => s + Math.round(newTotal * (prev.durationMinutes / t.estimatedMinutes) / 15) * 15, 0);
+        return { ...b, durationMinutes: Math.max(15, share) };
+      });
+    }
+    return updated;
+  });
 }
 
 export function deleteTask(taskId) {
@@ -53,6 +79,12 @@ export function completeTask(taskId) {
   const now = new Date();
   _tasks = _tasks.map(t =>
     t.id === taskId ? { ...t, isCompleted: true, completedAt: now, scheduledBlocks: [] } : t
+  );
+}
+
+export function restoreTask(taskId) {
+  _tasks = _tasks.map(t =>
+    t.id === taskId ? { ...t, isCompleted: false, completedAt: null } : t
   );
 }
 
@@ -69,21 +101,14 @@ export function unscheduleTask(taskId) {
 }
 
 // ─── timer mutations ─────────────────────────────────────────────────────────
-// activeTimer shape: { taskId, startedAt, baseSeconds }
-//   - startedAt: when the current running segment began (null when paused)
-//   - baseSeconds: task.elapsedSeconds at the moment the timer was started/resumed
-// Display: baseSeconds + (now - startedAt) when running, baseSeconds when paused.
-// task.elapsedSeconds is the single source of truth for total time; it is written
-// on pause and finish so it's always current.
 
 function liveSeconds(t) {
   if (!t) return 0;
-  if (!t.startedAt) return t.baseSeconds; // paused
+  if (!t.startedAt) return t.baseSeconds;
   return t.baseSeconds + Math.max(0, Math.floor((Date.now() - new Date(t.startedAt)) / 1000));
 }
 
 export function startTimer(taskId) {
-  // Save current timer's elapsed back to its task before switching.
   const current = activeTimer.value;
   if (current && current.taskId !== taskId) {
     finishTimer(current.taskId);
@@ -97,7 +122,6 @@ export function pauseTimer(taskId) {
   const t = activeTimer.value;
   if (!t || t.taskId !== taskId || !t.startedAt) return;
   const total = liveSeconds(t);
-  // Write elapsed back to the task so it survives a reload while paused.
   _tasks = _tasks.map(t2 => t2.id === taskId ? { ...t2, elapsedSeconds: total } : t2);
   setActiveTimer({ taskId, startedAt: null, baseSeconds: total });
 }
@@ -108,12 +132,10 @@ export function resumeTimer(taskId) {
   setActiveTimer({ taskId, startedAt: new Date(), baseSeconds: t.baseSeconds });
 }
 
-// Save elapsed back to the task and clear the timer.
 export function finishTimer(taskId) {
   const t = activeTimer.value;
   const total = t && t.taskId === taskId ? liveSeconds(t) : null;
   setActiveTimer(null);
-
   if (total === null) return;
   _tasks = _tasks.map(t2 =>
     t2.id === taskId ? { ...t2, elapsedSeconds: total } : t2
@@ -123,9 +145,8 @@ export function finishTimer(taskId) {
 // ─── schedule mutations ───────────────────────────────────────────────────────
 
 export function autoScheduleAll(estimationMultiplier = 1.2) {
-  const blocks = autoSchedule(_tasks, workSchedule.value, estimationMultiplier);
+  const blocks = autoSchedule(_tasks, workSchedule.value, fixedBlocks.value, estimationMultiplier);
   if (!blocks.length) return;
-  // Group blocks by taskId and apply to each task.
   const blocksByTask = new Map();
   for (const block of blocks) {
     if (!blocksByTask.has(block.taskId)) blocksByTask.set(block.taskId, []);
@@ -149,7 +170,6 @@ export function unscheduleTasksOnDisabledDays(schedule) {
   );
   _tasks = _tasks.map(t => {
     if (!t.scheduledBlocks.length) return t;
-    // Unschedule if any block falls on a now-disabled day.
     const hasDisabledBlock = t.scheduledBlocks.some(b => {
       const dow = new Date(b.date + 'T00:00:00').getDay();
       return !enabledDays.has(dow);

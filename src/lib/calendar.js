@@ -83,9 +83,9 @@ export function nextWorkDayStart(from, schedule) {
   return next;
 }
 
-export function getVisibleWorkDays(schedule, nDays = 7) {
+export function getVisibleWorkDays(schedule, nDays = 7, fromDate = null) {
   const result = [];
-  const cursor = new Date();
+  const cursor = fromDate ? new Date(fromDate) : new Date();
   cursor.setHours(0, 0, 0, 0);
   let safety = 0;
 
@@ -165,8 +165,16 @@ export function formatDateLabel(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
 
-  if (d.getTime() === today.getTime()) return 'Today';
-  if (d.getTime() === tomorrow.getTime()) return 'Tomorrow';
+  const shortDate = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  if (d.getTime() === today.getTime()) return { label: 'Today', short: shortDate };
+  if (d.getTime() === tomorrow.getTime()) return { label: 'Tomorrow', short: shortDate };
+
+  // Next week or later — show "Next week" for Mon-Sun block after tomorrow
+  const diffDays = Math.round((d - today) / 86400000);
+  if (diffDays <= 7) {
+    return { label: date.toLocaleDateString('en-US', { weekday: 'long' }), short: shortDate };
+  }
+
+  return { label: 'Next week', short: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + '+' };
 }
