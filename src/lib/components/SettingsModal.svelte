@@ -15,15 +15,15 @@
 
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  function minutesToTime(minutes) {
-    const h = String(Math.floor(minutes / 60)).padStart(2, '0');
-    const m = String(minutes % 60).padStart(2, '0');
-    return `${h}:${m}`;
-  }
+  // Display rows run Mon→Sun; workSchedule.days is stored Sun-first (dayOfWeek 0 = Sun).
+  const DISPLAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
-  function timeToMinutes(timeStr) {
-    const [h, m] = timeStr.split(':').map(Number);
-    return h * 60 + (m || 0);
+  function formatClock(minutes) {
+    const h24 = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    const suffix = h24 < 12 ? 'a' : 'p';
+    return m === 0 ? `${h12}:00${suffix}` : `${h12}:${String(m).padStart(2, '0')}${suffix}`;
   }
 
   function toggleDay(i, enabled) {
@@ -31,13 +31,85 @@
     updateWorkSchedule({ ...workSchedule.value, days });
   }
 
-  function setDayTime(i, field, timeStr) {
-    const days = workSchedule.days.map((d, idx) => idx === i ? { ...d, [field]: timeToMinutes(timeStr) } : d);
+  function setDayRange(i, startMinutes, endMinutes) {
+    const days = workSchedule.days.map((d, idx) => idx === i ? { ...d, startMinutes, endMinutes } : d);
     updateWorkSchedule({ ...workSchedule.value, days });
   }
 
   function setBuffer(mins) {
     updateWorkSchedule({ ...workSchedule.value, bufferMinutes: mins });
+  }
+
+  // ── Work-hours timeline ────────────────────────────────────────────────────
+  const TIMELINE_START = 6 * 60;   // 6:00a
+  const TIMELINE_END    = 20 * 60; // 8:00p
+  const TIMELINE_SPAN   = TIMELINE_END - TIMELINE_START;
+  const SNAP_MINUTES    = 15;
+  const MIN_DURATION    = 30;
+
+  const HOUR_TICKS = [6, 9, 12, 15, 18, 20].map(h => ({
+    hour: h,
+    left: ((h * 60 - TIMELINE_START) / TIMELINE_SPAN) * 100,
+    label: h === 12 ? '12p' : h > 12 ? `${h - 12}` : `${h}a`,
+  }));
+
+  let totalWeeklyMinutes = $derived(
+    workSchedule.days.reduce((sum, d) => sum + (d.enabled ? Math.max(0, d.endMinutes - d.startMinutes) : 0), 0)
+  );
+  let totalWeeklyLabel = $derived((() => {
+    const h = Math.floor(totalWeeklyMinutes / 60);
+    const m = totalWeeklyMinutes % 60;
+    return m === 0 ? `${h}h/wk` : `${h}h${m}m/wk`;
+  })());
+
+  function snap(minutes) {
+    return Math.round(minutes / SNAP_MINUTES) * SNAP_MINUTES;
+  }
+
+  function clampRange(start, end) {
+    start = Math.max(TIMELINE_START, Math.min(start, TIMELINE_END - MIN_DURATION));
+    end = Math.max(start + MIN_DURATION, Math.min(end, TIMELINE_END));
+    return [start, end];
+  }
+
+  let drag = $state(null); // { dayIndex, mode: 'start'|'end'|'move', trackEl, anchorClientX, anchorStart, anchorEnd }
+
+  function onTrackPointerDown(e, dayIndex, day, mode) {
+    e.stopPropagation();
+    if (!day.enabled) return;
+    const trackEl = e.currentTarget.closest('.hours-track');
+    drag = {
+      dayIndex, mode, trackEl,
+      anchorClientX: e.clientX,
+      anchorStart: day.startMinutes,
+      anchorEnd: day.endMinutes,
+    };
+    trackEl.setPointerCapture(e.pointerId);
+  }
+
+  function onTrackPointerMove(e) {
+    if (!drag) return;
+    const r = drag.trackEl.getBoundingClientRect();
+    const deltaMinutes = ((e.clientX - drag.anchorClientX) / r.width) * TIMELINE_SPAN;
+
+    if (drag.mode === 'start') {
+      const [s, en] = clampRange(snap(drag.anchorStart + deltaMinutes), drag.anchorEnd);
+      setDayRange(drag.dayIndex, s, en);
+    } else if (drag.mode === 'end') {
+      const [s, en] = clampRange(drag.anchorStart, snap(drag.anchorEnd + deltaMinutes));
+      setDayRange(drag.dayIndex, s, en);
+    } else if (drag.mode === 'move') {
+      const duration = drag.anchorEnd - drag.anchorStart;
+      let s = snap(drag.anchorStart + deltaMinutes);
+      s = Math.max(TIMELINE_START, Math.min(s, TIMELINE_END - duration));
+      setDayRange(drag.dayIndex, s, s + duration);
+    }
+  }
+
+  function onTrackPointerUp(e) {
+    if (!drag) return;
+    drag.trackEl.releasePointerCapture(e.pointerId);
+    drag = null;
   }
 
   function hardReset() {
@@ -65,46 +137,78 @@
             <button
               class="theme-btn"
               class:active={theme.value === t.id}
-              data-theme-preview={t.id}
               onclick={() => setTheme(t.id)}
             >
-              <span class="theme-swatch" data-theme-preview={t.id}></span>
-              <span class="theme-name">{t.label}</span>
-              <span class="theme-desc">{t.desc}</span>
+              <span class="theme-preview" data-theme-preview={t.id}>
+                <span class="theme-preview-bar"></span>
+                <span class="theme-preview-card"></span>
+              </span>
+              <span class="theme-copy">
+                <span class="theme-name">{t.label}</span>
+                <span class="theme-desc">{t.desc}</span>
+              </span>
             </button>
           {/each}
         </div>
       </section>
 
       <section>
-        <h3 class="section-title">Work Hours</h3>
-        <div class="schedule-grid">
-          {#each workSchedule.days as day, i}
-            <div class="schedule-row" class:disabled={!day.enabled}>
-              <label class="day-toggle">
-                <input type="checkbox" checked={day.enabled} onchange={(e) => toggleDay(i, e.target.checked)} />
-                <span class="day-name">{DAY_NAMES[day.dayOfWeek]}</span>
-              </label>
-              {#if day.enabled}
-                <div class="time-range">
-                  <input
-                    type="time"
-                    value={minutesToTime(day.startMinutes)}
-                    onchange={(e) => setDayTime(i, 'startMinutes', e.target.value)}
-                  />
-                  <span class="sep">–</span>
-                  <input
-                    type="time"
-                    value={minutesToTime(day.endMinutes)}
-                    onchange={(e) => setDayTime(i, 'endMinutes', e.target.value)}
-                  />
-                </div>
-              {:else}
-                <span class="off-label">Off</span>
-              {/if}
-            </div>
-          {/each}
+        <div class="section-header">
+          <h3 class="section-title">Work Hours</h3>
+          <span class="section-hint">drag the bars · {totalWeeklyLabel}</span>
         </div>
+        <p class="section-subhint">Click a day to switch it on or off · drag a bar's edges to resize, its middle to shift.</p>
+
+        <div class="hours-row hours-axis-row">
+          <div class="hours-row-label"></div>
+          <div class="hours-axis">
+            {#each HOUR_TICKS as t}
+              <span class="hours-axis-tick" style="left:{t.left}%">{t.label}</span>
+            {/each}
+          </div>
+          <span class="hours-range-label hours-range-label-spacer"></span>
+        </div>
+
+        {#each DISPLAY_ORDER as dow}
+          {#each workSchedule.days as day, i}
+            {#if day.dayOfWeek === dow}
+              <div class="hours-row" class:off={!day.enabled}>
+                <button
+                  class="hours-row-label"
+                  onclick={() => toggleDay(i, !day.enabled)}
+                  aria-label="{day.enabled ? 'Disable' : 'Enable'} {DAY_NAMES[dow]}"
+                >
+                  <span class="day-dot" class:active={day.enabled}></span>
+                  <span class="hours-day-name">{DAY_NAMES[dow]}</span>
+                </button>
+
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  class="hours-track"
+                  onpointermove={onTrackPointerMove}
+                  onpointerup={onTrackPointerUp}
+                >
+                  {#if day.enabled}
+                    {@const left = ((day.startMinutes - TIMELINE_START) / TIMELINE_SPAN) * 100}
+                    {@const width = ((day.endMinutes - day.startMinutes) / TIMELINE_SPAN) * 100}
+                    <div
+                      class="hours-bar"
+                      style="left:{left}%; width:{width}%"
+                      onpointerdown={(e) => onTrackPointerDown(e, i, day, 'move')}
+                    >
+                      <div class="hours-handle hours-handle-start" onpointerdown={(e) => onTrackPointerDown(e, i, day, 'start')}></div>
+                      <div class="hours-handle hours-handle-end" onpointerdown={(e) => onTrackPointerDown(e, i, day, 'end')}></div>
+                    </div>
+                  {/if}
+                </div>
+
+                <span class="hours-range-label">
+                  {day.enabled ? `${formatClock(day.startMinutes)} – ${formatClock(day.endMinutes)}` : 'Day off'}
+                </span>
+              </div>
+            {/if}
+          {/each}
+        {/each}
       </section>
 
       <section>
@@ -138,7 +242,7 @@
 <style>
   .settings-modal {
     min-width: 420px;
-    max-width: 520px;
+    max-width: 640px;
     padding: 0;
   }
 
@@ -153,7 +257,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 12px;
+    padding: 10px;
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     background: var(--color-surface);
@@ -173,20 +277,57 @@
     box-shadow: 0 0 0 2px var(--color-primary);
   }
 
-  .theme-swatch {
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
+  /* Mini preview renders each theme's real surface/card/primary colours so the
+     swatch reads like a tiny screenshot, regardless of the currently active theme. */
+  .theme-preview {
+    width: 44px;
+    height: 38px;
     flex-shrink: 0;
-    border: 1px solid rgba(0,0,0,0.10);
+    border-radius: 5px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 4px;
+    border: 1px solid rgba(0,0,0,0.12);
   }
 
-  /* Swatch colours use inline data-theme-preview attribute so they always
-     show the preview colour regardless of the active theme */
-  .theme-swatch[data-theme-preview="warm-parchment"] { background: #F4EEE2; box-shadow: inset 0 0 0 3px #C8553C; }
-  .theme-swatch[data-theme-preview="sage-morning"]   { background: #E2EAE0; box-shadow: inset 0 0 0 3px #4A8048; }
-  .theme-swatch[data-theme-preview="ember-night"]    { background: #261E14; box-shadow: inset 0 0 0 3px #D47840; }
-  .theme-swatch[data-theme-preview="dusk"]           { background: #1E2130; box-shadow: inset 0 0 0 3px #CC6858; }
+  .theme-preview-bar {
+    display: block;
+    width: 40%;
+    height: 6px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  .theme-preview-card {
+    display: block;
+    flex: 1;
+    border-radius: 3px;
+  }
+
+  .theme-preview[data-theme-preview="warm-parchment"] { background: #FBF7EF; }
+  .theme-preview[data-theme-preview="warm-parchment"] .theme-preview-bar  { background: #C8553C; }
+  .theme-preview[data-theme-preview="warm-parchment"] .theme-preview-card { background: #FFFFFF; border: 1px solid #EAE1D2; }
+
+  .theme-preview[data-theme-preview="sage-morning"] { background: #EEF3EB; }
+  .theme-preview[data-theme-preview="sage-morning"] .theme-preview-bar  { background: #4A8048; }
+  .theme-preview[data-theme-preview="sage-morning"] .theme-preview-card { background: #F4F7F0; border: 1px solid #C8D8C2; }
+
+  .theme-preview[data-theme-preview="ember-night"] { background: #1C1710; }
+  .theme-preview[data-theme-preview="ember-night"] .theme-preview-bar  { background: #D47840; }
+  .theme-preview[data-theme-preview="ember-night"] .theme-preview-card { background: #261E14; border: 1px solid #382C1E; }
+
+  .theme-preview[data-theme-preview="dusk"] { background: #191C28; }
+  .theme-preview[data-theme-preview="dusk"] .theme-preview-bar  { background: #CC6858; }
+  .theme-preview[data-theme-preview="dusk"] .theme-preview-card { background: #1E2130; border: 1px solid #2A2E44; }
+
+  .theme-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
 
   .theme-name {
     font-size: 13px;
@@ -196,7 +337,9 @@
   }
 
   .theme-desc {
-    display: none;
+    font-size: 11px;
+    color: var(--color-text-muted);
+    line-height: 1.3;
   }
 
   /* ── Header ── */
@@ -248,63 +391,145 @@
     margin-bottom: 12px;
   }
 
-  /* ── Work hours grid ── */
-  .schedule-grid {
+  /* ── Work hours: header ── */
+  .section-header {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 4px;
   }
 
-  .schedule-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-height: 32px;
+  .section-header .section-title { margin-bottom: 0; }
+
+  .section-hint {
+    font-size: 11px;
+    color: var(--color-text-faint);
+    white-space: nowrap;
   }
 
-  .schedule-row.disabled { opacity: 0.45; }
+  .section-subhint {
+    font-size: 11.5px;
+    color: var(--color-text-muted);
+    margin: 0 0 14px;
+  }
 
-  .day-toggle {
+  /* ── Work hours: hour axis ── */
+  .hours-axis-row {
+    margin-bottom: 4px;
+  }
+
+  .hours-axis {
+    position: relative;
+    flex: 1;
+    height: 14px;
+  }
+
+  .hours-axis-tick {
+    position: absolute;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--color-text-faint);
+    white-space: nowrap;
+  }
+
+  /* ── Work hours: rows ── */
+  .hours-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    width: 58px;
+    gap: 10px;
+    min-height: 34px;
+  }
+
+  .hours-row.off { opacity: 0.55; }
+
+  .hours-row-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 61px;
     flex-shrink: 0;
+    border: none;
+    padding: 0;
+    background: none;
+    cursor: pointer;
+    text-align: left;
   }
 
-  .day-name {
+  .day-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--color-border);
+  }
+
+  .day-dot.active { background: var(--color-accent); }
+
+  .hours-day-name {
     font-size: 13px;
     font-weight: 500;
   }
 
-  .time-range {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .hours-track {
+    position: relative;
+    flex: 1;
+    height: 22px;
+    border-radius: 5px;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--color-panel) 0,
+      var(--color-panel) calc(7.142% - 1px),
+      var(--color-border-light) calc(7.142% - 1px),
+      var(--color-border-light) 7.142%
+    );
+    touch-action: none;
   }
 
-  .sep {
-    color: var(--color-text-muted);
-    font-size: 13px;
+  .hours-bar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-radius: 5px;
+    background: var(--color-accent);
+    opacity: 0.85;
+    cursor: grab;
   }
 
-  input[type="time"] {
-    padding: 4px 8px;
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    font-size: 13px;
-    background: var(--color-surface);
+  .hours-bar:active { cursor: grabbing; }
+
+  .hours-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    cursor: ew-resize;
+  }
+
+  .hours-handle-start { left: -1px; border-radius: 5px 0 0 5px; }
+  .hours-handle-end   { right: -1px; border-radius: 0 5px 5px 0; }
+
+  .hours-handle::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    bottom: 3px;
+    left: 3px;
+    width: 2px;
+    border-radius: 1px;
+    background: rgba(0,0,0,0.25);
+  }
+
+  .hours-range-label {
+    font-size: 12.5px;
+    font-weight: 600;
     color: var(--color-text);
+    width: 118px;
+    flex-shrink: 0;
+    text-align: right;
   }
 
-  input[type="time"]:focus {
-    outline: none;
-    border-color: var(--color-primary);
-  }
-
-  .off-label {
-    font-size: 13px;
+  .hours-row.off .hours-range-label {
+    font-weight: 400;
     color: var(--color-text-muted);
   }
 
