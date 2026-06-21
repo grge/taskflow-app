@@ -1,6 +1,6 @@
 import { accumulatedPressure } from './envelope.js';
 import { advanceWork, getVisibleWorkDays, toISODate } from './calendar.js';
-import { splitTaskAcrossDays } from './scheduling.js';
+import { splitTaskAcrossDays, blockCoversTime } from './scheduling.js';
 
 // ─── free interval computation ───────────────────────────────────────────────
 
@@ -109,13 +109,6 @@ export function packSequence(sequence, schedule, manualBlocks = [], fixedBlocks 
   }
 
   return result;
-}
-
-function blockCoversTime(block, time) {
-  const blockDate = toISODate(time);
-  if (block.date !== blockDate) return false;
-  const timeMinutes = time.getHours() * 60 + time.getMinutes();
-  return timeMinutes >= block.startMinutes && timeMinutes < block.startMinutes + block.durationMinutes;
 }
 
 // ─── totalCost ───────────────────────────────────────────────────────────────

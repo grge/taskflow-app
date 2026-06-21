@@ -5,6 +5,7 @@ import { autoSchedule } from '../lib/scheduler.js';
 import { workSchedule, fixedBlocks } from './schedule.svelte.js';
 import { activeTimer, setActiveTimer } from './ui.svelte.js';
 import { toISODate } from '../lib/calendar.js';
+import { SNAP_MINUTES } from '../lib/constants.js';
 
 const _initialState = loadState();
 let _tasks = $state(_initialState.tasks);
@@ -62,9 +63,9 @@ export function editTask(taskId, patch) {
       updated.scheduledBlocks = updated.scheduledBlocks.map((b, i, arr) => {
         // Last block gets remainder to avoid rounding drift
         const share = i < arr.length - 1
-          ? Math.round(newTotal * (b.durationMinutes / t.estimatedMinutes) / 15) * 15
-          : newTotal - arr.slice(0, i).reduce((s, prev) => s + Math.round(newTotal * (prev.durationMinutes / t.estimatedMinutes) / 15) * 15, 0);
-        return { ...b, durationMinutes: Math.max(15, share) };
+          ? Math.round(newTotal * (b.durationMinutes / t.estimatedMinutes) / SNAP_MINUTES) * SNAP_MINUTES
+          : newTotal - arr.slice(0, i).reduce((s, prev) => s + Math.round(newTotal * (prev.durationMinutes / t.estimatedMinutes) / SNAP_MINUTES) * SNAP_MINUTES, 0);
+        return { ...b, durationMinutes: Math.max(SNAP_MINUTES, share) };
       });
     }
     return updated;
@@ -102,7 +103,7 @@ export function unscheduleTask(taskId) {
 
 // ─── timer mutations ─────────────────────────────────────────────────────────
 
-function liveSeconds(t) {
+export function liveSeconds(t) {
   if (!t) return 0;
   if (!t.startedAt) return t.baseSeconds;
   return t.baseSeconds + Math.max(0, Math.floor((Date.now() - new Date(t.startedAt)) / 1000));

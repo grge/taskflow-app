@@ -1,11 +1,10 @@
 <script>
-  import { editTask, deleteTask, completeTask, unscheduleTask, startTimer } from '../../stores/tasks.svelte.js';
-  import { setExpandedTask, expandedTaskId, activeTimer } from '../../stores/ui.svelte.js';
+  import { editTask, deleteTask, completeTask, unscheduleTask, startTimer, pauseTimer, resumeTimer, finishTimer, liveSeconds } from '../../stores/tasks.svelte.js';
+  import { setExpandedTask, expandedTaskId, activeTimer, berthGhost, dragState } from '../../stores/ui.svelte.js';
   import { draggableTask } from '../dnd.js';
   import { minutesToTimeString, toISODate } from '../calendar.js';
   import { clock } from '../../stores/clock.svelte.js';
   import { pAt, pToColor, getPressureTier } from '../envelope.js';
-  import PressureSparkline from './PressureSparkline.svelte';
   import EnvelopeEditor from './EnvelopeEditor.svelte';
 
   let { task } = $props();
@@ -13,9 +12,12 @@
   const DURATION_OPTIONS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 480];
 
   let isTimerRunning  = $derived(activeTimer.value?.taskId === task.id);
+  let isTimerPaused   = $derived(isTimerRunning && !activeTimer.value?.startedAt);
   let isScheduled     = $derived(task.scheduledBlocks.length > 0);
   let isExpanded      = $derived(expandedTaskId.value === task.id);
   let isPastScheduled = $derived(task.scheduledBlocks.some(b => b.date < clock.today));
+  let isBerthGhosting = $derived(isScheduled && berthGhost.value === task.id);
+  let isChipDragging  = $derived(dragState.value?.taskId === task.id);
 
   let currentPressure = $derived(pAt(task, clock.minute));
   let pressureTier    = $derived(getPressureTier(currentPressure));
@@ -27,10 +29,15 @@
   let totalElapsedSeconds = $derived((() => {
     const t = activeTimer.value;
     if (!t || t.taskId !== task.id) return task.elapsedSeconds ?? 0;
-    if (!t.startedAt) return t.baseSeconds;
     void clock.now;
-    return t.baseSeconds + Math.max(0, Math.floor((Date.now() - new Date(t.startedAt)) / 1000));
+    return liveSeconds(t);
   })());
+
+  // Footer (timer strip) shows for the running task, the paused task, or any task with elapsed time logged
+  let showFooter   = $derived(isTimerRunning || totalElapsedSeconds > 0);
+  let estSeconds   = $derived(task.estimatedMinutes * 60);
+  let progressFrac = $derived(estSeconds > 0 ? Math.min(1, totalElapsedSeconds / estSeconds) : 0);
+  let overSeconds  = $derived(Math.max(0, totalElapsedSeconds - estSeconds));
 
   function formatElapsed(seconds) {
     if (seconds < 60) return `${seconds}s`;
@@ -46,19 +53,36 @@
     return `${mins}m`;
   }
 
+  function formatClock(seconds) {
+    const total = Math.floor(seconds);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor(total / 60) % 60;
+    const s = total % 60;
+    const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+    const ss = String(s).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
   function firstScheduledBadge(blocks) {
     if (!blocks.length) return null;
     const sorted = [...blocks].sort((a, b) =>
       a.date < b.date ? -1 : a.date > b.date ? 1 : a.startMinutes - b.startMinutes
     );
     const b = sorted[0];
-    const d = new Date(b.date + 'T00:00:00');
     const today = toISODate(new Date());
-    const tomorrow = toISODate(new Date(Date.now() + 24 * 60 * 60 * 1000));
     if (b.date === today) return minutesToTimeString(b.startMinutes);
-    if (b.date === tomorrow) return `Tmrw ${minutesToTimeString(b.startMinutes)}`;
-    const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-    return dateStr;
+    const d = new Date(b.date + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short' });
+  }
+
+  function peaksLabel(peak) {
+    const d = peak instanceof Date ? peak : new Date(peak);
+    const today = new Date();
+    const diffDays = Math.round((d.setHours(0,0,0,0) - new Date(today).setHours(0,0,0,0)) / 86_400_000);
+    if (diffDays <= 0) return 'today';
+    if (diffDays === 1) return 'tomorrow';
+    if (diffDays <= 6) return d.toLocaleDateString('en-US', { weekday: 'long' });
+    return 'next week';
   }
 
   function startEdit() {
@@ -96,83 +120,122 @@
 <div
   class="task-card"
   class:is-expanded={isExpanded}
-  class:timer-running={isTimerRunning}
-  class:past-scheduled={isPastScheduled}
+  class:timer-running={isTimerRunning && !isTimerPaused}
+  class:timer-paused={isTimerPaused}
+  style={isTimerRunning && !isTimerPaused ? `--spine:${pillColor}` : undefined}
 >
   <!-- ── Collapsed header ── -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="task-header" onclick={() => setExpandedTask(task.id)}>
 
-    <!-- Circle checkbox (complete button) -->
+    <!-- Complete checkbox -->
     <button
-      class="check-btn"
-      style="border-color:{pillColor}"
+      class="complete-circle"
       title="Mark complete"
       onclick={(e) => { e.stopPropagation(); completeTask(task.id); }}
-    >
-      {#if isTimerRunning}
-        <svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="#4CAF50"/></svg>
-      {/if}
-    </button>
+    >✓</button>
 
     <!-- Description + sub-line -->
     <div class="task-main">
-      {#if isEditingDesc}
-        <!-- svelte-ignore a11y_autofocus -->
-        <input
-          class="desc-input"
-          bind:value={editValue}
-          onblur={commitEdit}
-          onkeydown={onDescKeydown}
-          onclick={(e) => e.stopPropagation()}
-          autofocus
-        />
-      {:else}
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <span
-          class="task-desc"
-          title={task.description}
-          onclick={(e) => e.stopPropagation()}
-          ondblclick={(e) => { e.stopPropagation(); startEdit(); }}
-        >{task.description}</span>
-      {/if}
-      <span class="task-subline">
-        {#if isScheduled && scheduledBadge}
-          ◷ {scheduledBadge} · {formatDuration(task.estimatedMinutes)}
-        {:else if task.estimatedMinutes}
-          {formatDuration(task.estimatedMinutes)}
-          {#if isPastScheduled}<span class="past-flag" title="Past scheduled time"> !</span>{/if}
+      <div class="task-title-row">
+        {#if isEditingDesc}
+          <!-- svelte-ignore a11y_autofocus -->
+          <input
+            class="desc-input"
+            bind:value={editValue}
+            onblur={commitEdit}
+            onkeydown={onDescKeydown}
+            onclick={(e) => e.stopPropagation()}
+            autofocus
+          />
         {:else}
-          Unscheduled
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <span
+            class="task-desc"
+            title={task.description}
+            onclick={(e) => e.stopPropagation()}
+            ondblclick={(e) => { e.stopPropagation(); startEdit(); }}
+          >{task.description}</span>
+        {/if}
+        {#if isTimerRunning && !isTimerPaused}
+          <span class="status-badge badge-working">● WORKING</span>
+        {:else if isTimerPaused}
+          <span class="status-badge badge-paused">PAUSED</span>
+        {/if}
+      </div>
+      <span class="task-subline">
+        {#if isPastScheduled}
+          <span class="status-dot" style="background:{pillColor}"></span>
+          <span class="past-flag" title="Past scheduled time">past scheduled time</span>
+        {:else if showFooter}
+          {#if isScheduled}
+            ◷ {scheduledBadge} · est {formatDuration(task.estimatedMinutes)}
+          {:else}
+            Unscheduled · est {formatDuration(task.estimatedMinutes)}
+          {/if}
+        {:else}
+          <span class="status-dot" style="background:{pillColor}"></span>
+          {pressureTier?.label ?? 'Unscheduled'} · peaks {peaksLabel(task.peak)}
         {/if}
       </span>
     </div>
 
-    <!-- Sparkline (right) + hover actions -->
-    <div class="task-right">
-      <div class="task-actions">
-        <button class="action-btn play-btn" title="Start timer"
-          onclick={(e) => { e.stopPropagation(); startTimer(task.id); }}>
-          <svg width="10" height="11" viewBox="0 0 11 12" fill="currentColor"><path d="M1 1l9 5-9 5V1z"/></svg>
-        </button>
-        {#if !isScheduled}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="drag-handle" title="Drag to schedule" use:draggableTask={{ taskId: task.id }}
-            onclick={(e) => e.stopPropagation()}>
-            <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor">
-              <circle cx="3" cy="2.5" r="1.2"/><circle cx="7" cy="2.5" r="1.2"/>
-              <circle cx="3" cy="7" r="1.2"/><circle cx="7" cy="7" r="1.2"/>
-              <circle cx="3" cy="11.5" r="1.2"/><circle cx="7" cy="11.5" r="1.2"/>
-            </svg>
-          </div>
-        {/if}
-      </div>
-      <div class="sparkline-wrap">
-        <PressureSparkline {task} />
-      </div>
+    <!-- Hover-reveal play button (inactive rows only) -->
+    {#if !isTimerRunning}
+      <button class="play-hover-btn" title="Start timer"
+        onclick={(e) => { e.stopPropagation(); startTimer(task.id); }}>▶</button>
+    {/if}
+
+    <!-- Berth (right) -->
+    <div class="berth" data-berth-task-id={task.id}>
+      {#if isBerthGhosting}
+        <div class="task-chip chip-ghost" style="--spine:{pillColor}">
+          <div class="chip-accent"></div>
+          <span class="chip-handle">⠿</span>
+          <span class="chip-duration">{formatDuration(task.estimatedMinutes)}</span>
+        </div>
+      {:else if !isScheduled}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="task-chip" class:is-dragging={isChipDragging} style="--spine:{pillColor}" title="Drag to schedule"
+          use:draggableTask={{ taskId: task.id }}
+          onclick={(e) => e.stopPropagation()}>
+          <div class="chip-accent"></div>
+          <span class="chip-handle">⠿</span>
+          <span class="chip-duration">{formatDuration(task.estimatedMinutes)}</span>
+        </div>
+      {:else}
+        <span class="berth-schedule" title="Scheduled">◷ {scheduledBadge}</span>
+      {/if}
     </div>
 
   </div>
+
+  <!-- ── Timer footer ── -->
+  {#if showFooter}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="task-footer" onclick={(e) => e.stopPropagation()}>
+      <span class="footer-elapsed" class:over={overSeconds > 0}>{formatClock(totalElapsedSeconds)}</span>
+      <div class="footer-bar-track">
+        <div class="footer-bar-fill" class:over={overSeconds > 0} style="width:{Math.max(progressFrac, overSeconds > 0 ? 1 : 0) * 100}%"></div>
+      </div>
+      <span class="footer-est">est {formatDuration(task.estimatedMinutes)}</span>
+      {#if overSeconds > 0}
+        <span class="footer-over">+{formatElapsed(overSeconds)} over</span>
+      {/if}
+      <div class="footer-controls">
+        {#if isTimerRunning}
+          {#if isTimerPaused}
+            <button class="footer-btn" title="Resume timer" onclick={() => resumeTimer(task.id)}>▶</button>
+          {:else}
+            <button class="footer-btn" title="Pause timer" onclick={() => pauseTimer(task.id)}>⏸</button>
+          {/if}
+        {:else}
+          <button class="footer-btn" title="Start timer" onclick={() => startTimer(task.id)}>▶</button>
+        {/if}
+        <button class="footer-btn" title="Stop timer" onclick={() => finishTimer(task.id)}>■</button>
+      </div>
+    </div>
+  {/if}
 
   <!-- ── Expanded panel ── -->
   {#if isExpanded}
@@ -227,60 +290,67 @@
 <style>
   /* ── Card wrapper ── */
   .task-card {
-    background: var(--color-card);
-    border-radius: var(--radius-lg);
-    margin: 6px 10px;
-    border: 1px solid var(--color-border-light);
-    box-shadow: none;
-    transition: box-shadow 0.15s, border-color 0.15s;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    border-bottom: 1px solid var(--color-border-light);
+    border-left: 3px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
   }
 
   .task-card:hover {
-    border-color: var(--color-border);
-    box-shadow: 0 2px 8px rgba(42,37,33,0.07);
+    background: var(--color-panel);
   }
 
   .task-card.timer-running {
-    border-color: #A8D5A2;
-    box-shadow: 0 2px 12px rgba(110,139,99,0.15);
+    background: color-mix(in srgb, var(--spine) 8%, var(--color-card));
+    border-color: color-mix(in srgb, var(--spine) 35%, var(--color-border-light));
+    border-left-color: var(--spine);
+  }
+
+  .task-card.timer-paused {
+    background: var(--color-panel);
+    border-left-color: var(--color-text-faint);
   }
 
   .task-card.is-expanded {
-    border-color: #E6BBAA;
-    box-shadow: 0 6px 18px rgba(200,85,60,0.10);
-  }
-
-  .task-card.past-scheduled {
-    border-left: 3px solid var(--color-accent);
+    background: var(--color-panel);
+    border-color: var(--color-accent-border);
   }
 
   /* ── Collapsed header ── */
   .task-header {
     display: flex;
     align-items: center;
-    padding: 10px 10px 10px 12px;
+    padding: 10px 10px 10px 10px;
     gap: 8px;
     cursor: pointer;
     min-width: 0;
   }
 
-  /* ── Circle checkbox ── */
-  .check-btn {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    border: 2.5px solid var(--color-border);
-    background: transparent;
+  /* ── Complete checkbox ── */
+  .complete-circle {
     flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid var(--color-border);
+    background: var(--color-card);
+    color: transparent;
+    font-size: 13px;
+    font-weight: 700;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: border-color 0.15s, background 0.15s;
+    cursor: pointer;
     padding: 0;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
   }
 
-  .check-btn:hover {
-    background: var(--color-panel);
+  .complete-circle:hover {
+    background: #6E8B63;
+    border-color: #6E8B63;
+    color: #fff;
   }
 
   /* ── Description block ── */
@@ -290,6 +360,33 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+
+  .task-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .status-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    padding: 2px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .badge-working {
+    background: rgba(110,139,99,0.16);
+    color: #6E8B63;
+  }
+
+  .badge-paused {
+    background: var(--color-border-light);
+    color: var(--color-text-muted);
   }
 
   .task-desc {
@@ -324,6 +421,9 @@
   }
 
   .task-subline {
+    display: flex;
+    align-items: center;
+    gap: 5px;
     font-size: 12px;
     color: var(--color-text-muted);
     white-space: nowrap;
@@ -331,61 +431,224 @@
     text-overflow: ellipsis;
   }
 
-  .past-flag {
-    color: var(--color-accent);
-    font-weight: 700;
-  }
-
-  /* ── Right side: actions + sparkline ── */
-  .task-right {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
     flex-shrink: 0;
   }
 
-  .task-actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    width: 0;
-    overflow: hidden;
-    transition: width 0.15s;
+  .past-flag {
+    font-weight: 700;
+    color: var(--color-accent);
   }
 
-  .task-card:hover .task-actions,
-  .task-card.timer-running .task-actions { width: auto; overflow: visible; }
-
-  .action-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
+  /* ── Hover-reveal play button (inactive rows) ── */
+  .play-hover-btn {
+    flex-shrink: 0;
+    width: 0;
+    height: 26px;
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;
-    cursor: pointer;
     color: var(--color-text-muted);
-    transition: background 0.1s, color 0.1s;
+    font-size: 11px;
+    cursor: pointer;
+    overflow: hidden;
+    opacity: 0;
+    transition: width 0.15s, opacity 0.15s, background 0.1s, color 0.1s;
   }
 
-  .play-btn:hover { background: rgba(110,139,99,0.12); color: #6E8B63; }
+  .task-card:hover .play-hover-btn {
+    width: 26px;
+    opacity: 1;
+  }
 
-  .drag-handle {
+  .play-hover-btn:hover { background: var(--color-card); color: var(--color-text); }
+
+  /* ── Berth: a slot the card-chip docks into; stays visible (bevelled) even once occupied ── */
+  .berth {
+    width: 84px;
+    height: 38px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    margin-left: 6px;
+    padding: 4px;
+    box-sizing: border-box;
+    border-radius: var(--radius-sm);
+    background: var(--color-panel);
+    box-shadow:
+      inset 0 1px 3px var(--color-inset-shadow),
+      inset 0 -1px 0 var(--color-inset-highlight),
+      inset 0 0 0 1px var(--color-border);
+  }
+
+  .berth-schedule {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
-    color: var(--color-border);
+    width: 100%;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    text-align: center;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+
+  .task-chip {
+    width: 100%;
+    display: flex;
+    align-items: stretch;
+    background: var(--color-card);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 1px 3px var(--color-shadow);
     cursor: grab;
     touch-action: none;
     user-select: none;
+    overflow: hidden;
+    transition: box-shadow 0.1s, border-color 0.1s;
   }
-  .drag-handle:active { cursor: grabbing; }
 
-  .sparkline-wrap { flex-shrink: 0; }
+  .task-chip:hover {
+    border-color: var(--color-border);
+    box-shadow: 0 2px 6px var(--color-shadow);
+  }
+
+  .task-chip:active { cursor: grabbing; }
+
+  .task-chip.is-dragging {
+    opacity: 0.35;
+    box-shadow: none;
+  }
+
+  .task-chip.chip-ghost {
+    opacity: 0.45;
+    border: 1.5px dashed var(--color-border);
+    cursor: default;
+    pointer-events: none;
+    background: var(--color-panel);
+    box-shadow: none;
+  }
+
+  .task-chip.chip-ghost .chip-accent {
+    background: var(--color-border);
+  }
+
+  .chip-accent {
+    width: 4px;
+    flex-shrink: 0;
+    background: var(--spine);
+  }
+
+  .chip-handle {
+    display: flex;
+    align-items: center;
+    padding-left: 6px;
+    font-size: 10px;
+    color: var(--color-text-faint);
+  }
+
+  .chip-duration {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text);
+    white-space: nowrap;
+  }
+
+  /* ── Timer footer ── */
+  .task-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 12px 10px 44px;
+    cursor: default;
+  }
+
+  .footer-elapsed {
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #6E8B63;
+    flex-shrink: 0;
+    min-width: 44px;
+  }
+
+  .footer-elapsed.over {
+    color: #C0392B;
+  }
+
+  .footer-bar-track {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--color-border-light);
+    overflow: hidden;
+  }
+
+  .footer-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: #6E8B63;
+    transition: width 0.2s;
+  }
+
+  .footer-bar-fill.over {
+    background: #C0392B;
+  }
+
+  .footer-est {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .footer-over {
+    font-size: 12px;
+    font-weight: 600;
+    color: #C0392B;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .footer-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .footer-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-card);
+    color: var(--color-text-muted);
+    font-size: 10px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+  }
+
+  .footer-btn:hover {
+    background: var(--color-panel);
+    color: var(--color-text);
+    border-color: var(--color-text-muted);
+  }
 
   /* ── Expanded panel ── */
   .task-expanded {

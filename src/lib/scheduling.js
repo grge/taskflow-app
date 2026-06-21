@@ -1,4 +1,5 @@
-import { toISODate, getDaySchedule, nextWorkDayStart } from './calendar.js';
+import { toISODate, getDaySchedule } from './calendar.js';
+import { SNAP_MINUTES } from './constants.js';
 
 export function createScheduledBlock(taskId, date, startMinutes, durationMinutes, opts = {}) {
   return {
@@ -76,8 +77,7 @@ export function latestValidDropPosition(durationMinutes, visibleDays) {
     // Try each 15-min slot from end-of-day backwards on day i.
     const { date, daySchedule } = visibleDays[i];
     const dateStr = toISODate(date);
-    // Start from the latest possible slot: end - 15 min (last schedulable quarter-cell)
-    for (let start = daySchedule.endMinutes - 15; start >= daySchedule.startMinutes; start -= 15) {
+    for (let start = daySchedule.endMinutes - SNAP_MINUTES; start >= daySchedule.startMinutes; start -= SNAP_MINUTES) {
       const blocks = splitTaskAcrossDays(null, dateStr, start, durationMinutes, visibleDays);
       if (blocks !== null) return { date: dateStr, startMinutes: start };
     }

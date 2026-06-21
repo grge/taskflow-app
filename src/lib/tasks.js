@@ -1,5 +1,3 @@
-import { pAt } from './envelope.js';
-
 export function createTask(description, onset, peak, peakPressure, estimatedMinutes) {
   const now = new Date();
   return {
@@ -21,8 +19,4 @@ export function createTask(description, onset, peak, peakPressure, estimatedMinu
 
 export function updateTask(task, patch) {
   return { ...task, ...patch, lastModifiedAt: new Date() };
-}
-
-export function sortTasksByPressure(tasks, now) {
-  return [...tasks].sort((a, b) => pAt(b, now) - pAt(a, now));
 }

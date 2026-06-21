@@ -1,4 +1,5 @@
 export const STORAGE_KEY = 'taskflow_v2';
+export const SNAP_MINUTES = 15;
 
 export const PRESSURE_SCALE = [
   { min: 0.00, max: 0.20, level: 1, label: 'Low',      emoji: '😌', color: '#4CAF50' },

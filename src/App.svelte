@@ -2,6 +2,7 @@
   import { activeModal, activeTab, setActiveTab, openModal } from './stores/ui.svelte.js';
   import { activeTasks, initPersistence } from './stores/tasks.svelte.js';
   import { initClock } from './stores/clock.svelte.js';
+  import { initTheme } from './stores/theme.svelte.js';
   import TaskList from './lib/components/TaskList.svelte';
   import TodayPlanner from './lib/components/TodayPlanner.svelte';
   import OutlookSection from './lib/components/OutlookSection.svelte';
@@ -13,6 +14,7 @@
 
   initPersistence();
   initClock();
+  initTheme();
 
   let totalCount       = $derived(activeTasks.value.length);
   let unscheduledCount = $derived(activeTasks.value.filter(t => !t.scheduledBlocks.length).length);
@@ -172,7 +174,7 @@
   }
 
   .task-panel {
-    width: 340px;
+    width: 380px;
     flex-shrink: 0;
     border-right: 1px solid var(--color-border);
     overflow: hidden;
@@ -222,7 +224,7 @@
   :global(.inline-wrap .modal) {
     position: static;
     transform: none;
-    box-shadow: 0 2px 16px rgba(42,37,33,0.08);
+    box-shadow: 0 2px 16px var(--color-shadow);
     width: 100%;
     max-width: none;
   }

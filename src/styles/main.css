@@ -5,40 +5,23 @@
 }
 
 :root {
-  /* Warm palette from mockup */
-  --color-bg:           #E9E2D6;
-  --color-surface:      #FBF7EF;
-  --color-panel:        #F4EEE2;
-  --color-card:         #FFFFFF;
-  --color-border:       #DCD3C4;
-  --color-border-light: #EAE1D2;
-
-  /* Text */
-  --color-text:         #2A2521;
-  --color-text-muted:   #6F665C;
-  --color-text-faint:   #9E9488;
-
-  /* Primary action: near-black like the mockup's Auto-schedule button */
-  --color-primary:      #2A2521;
-  --color-primary-hover:#1A1612;
-
-  /* Accent (used sparingly for links/focus) */
-  --color-accent:       #C8553C;
-
   /* Radius */
   --radius-sm:  6px;
   --radius:     9px;
   --radius-lg:  12px;
 
-  /* Legacy alias so existing components don't break */
-  --color-primary-old:  #4A90E2;
+  /* Spacing */
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 16px;
   --spacing-lg: 24px;
 
+  /* Typography */
   --font-body: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: Menlo, Consolas, 'Courier New', monospace;
+
+  /* Legacy alias */
+  --color-primary-old: #4A90E2;
 }
 
 body {
@@ -73,7 +56,7 @@ input, select, textarea {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(42, 37, 33, 0.35);
+  background: var(--modal-backdrop);
   z-index: 100;
   display: flex;
   align-items: center;
@@ -88,7 +71,7 @@ input, select, textarea {
   min-width: 360px;
   max-width: 480px;
   width: 90%;
-  box-shadow: 0 8px 40px rgba(42, 37, 33, 0.18);
+  box-shadow: 0 8px 40px var(--modal-backdrop);
   border: 1px solid var(--color-border);
 }
 
@@ -127,7 +110,7 @@ input, select, textarea {
 .btn-primary {
   background: var(--color-primary);
   border-color: var(--color-primary);
-  color: #FBF7EF;
+  color: var(--color-primary-text);
 }
 
 .btn-primary:hover {
@@ -149,8 +132,8 @@ input, select, textarea {
 }
 
 .btn-danger-ghost:hover {
-  background: rgba(200, 85, 60, 0.07);
-  border-color: rgba(200, 85, 60, 0.25);
+  background: var(--color-accent-tint);
+  border-color: var(--color-accent-border);
 }
 
 .btn-sm {

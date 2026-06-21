@@ -110,11 +110,23 @@
     return labels;
   })());
 
+  // Blend a hex color toward the theme's card color for chip backgrounds
+  function chipBg(hex) {
+    const card = getComputedStyle(document.documentElement)
+      .getPropertyValue('--color-card').trim();
+    const parse = (h) => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+    if (!card.startsWith('#') || card.length !== 7) return hex + '22';
+    const [cr,cg,cb] = parse(card);
+    const [hr,hg,hb] = parse(hex);
+    const mix = (c, base) => Math.round(c + (base - c) * 0.80);
+    return `rgb(${mix(hr,cr)},${mix(hg,cg)},${mix(hb,cb)})`;
+  }
+
   function pressureLabel(p) {
-    if (p < 0.22) return { label: 'Low',      color: '#6E8B63', soft: '#E4ECDD' };
-    if (p < 0.55) return { label: 'Building', color: '#C68A2E', soft: '#F6E7C9' };
-    if (p < 0.75) return { label: 'Elevated', color: '#EF5350', soft: '#FDE8E4' };
-    return { label: 'High', color: '#C8553C', soft: '#F6DAD2' };
+    if (p < 0.22) return { label: 'Low',      color: '#6E8B63' };
+    if (p < 0.55) return { label: 'Building', color: '#C68A2E' };
+    if (p < 0.75) return { label: 'Elevated', color: '#EF5350' };
+    return { label: 'High', color: '#C8553C' };
   }
 
   let nowPressureInfo = $derived(pressureLabel(nowPressure));
@@ -286,7 +298,7 @@
 
   <!-- Now pressure pill -->
   <div class="chips">
-    <span class="chip chip-now" style="background:{nowPressureInfo.soft}">
+    <span class="chip chip-now" style="background:{chipBg(nowPressureInfo.color)}">
       <span class="chip-now-label">now</span>
       <span class="chip-now-value" style="color:{nowPressureInfo.color}">{nowPressureInfo.label} · {Math.round(nowPressure * 100)}%</span>
     </span>
@@ -333,17 +345,17 @@
     flex: 1;
     height: 150px;
     position: relative;
-    border: 1px solid #EFE7D9;
+    border: 1px solid var(--color-border);
     border-radius: 10px;
     overflow: hidden;
     touch-action: none;
     cursor: grab;
     background: repeating-linear-gradient(
       90deg,
-      #FCF9F3 0,
-      #FCF9F3 calc(14.285% - 1px),
-      #F0E8DA calc(14.285% - 1px),
-      #F0E8DA 14.285%
+      var(--color-card) 0,
+      var(--color-card) calc(14.285% - 1px),
+      var(--color-border-light) calc(14.285% - 1px),
+      var(--color-border-light) 14.285%
     );
   }
 
@@ -353,7 +365,7 @@
     position: absolute;
     left: 0;
     right: 0;
-    border-top: 1px dashed #EFE2D0;
+    border-top: 1px dashed var(--color-border);
     pointer-events: none;
   }
 
@@ -381,7 +393,7 @@
     bottom: 0;
     left: 0;
     width: 0;
-    border-left: 2px solid #2A2521;
+    border-left: 2px solid var(--color-text);
     opacity: 0.5;
   }
 
@@ -391,8 +403,9 @@
     left: 4px;
     font-size: 9px;
     font-weight: 700;
-    color: #2A2521;
-    background: rgba(252,249,243,0.85);
+    color: var(--color-text);
+    background: var(--color-card);
+    opacity: 0.85;
     padding: 1px 3px;
     border-radius: 2px;
   }
@@ -407,8 +420,8 @@
 
   .handle {
     border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.18);
+    background: var(--color-card);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.25);
   }
 
   .handle-onset {
@@ -438,7 +451,7 @@
     transform: translateX(-50%);
     font-size: 10px;
     font-weight: 600;
-    color: #B8AE9E;
+    color: var(--color-text-faint);
     white-space: nowrap;
   }
 
@@ -469,6 +482,6 @@
     border-radius: 999px;
   }
 
-  .chip-now-label { font-size: 11.5px; color: #6F665C; font-weight: 600; }
+  .chip-now-label { font-size: 11.5px; color: var(--color-text-muted); font-weight: 600; }
   .chip-now-value { font-size: 12.5px; font-weight: 700; }
 </style>

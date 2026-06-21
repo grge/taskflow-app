@@ -8,6 +8,8 @@ let _previewBlock   = $state([]);
 let _activeTimer    = $state(null);
 // Ghost card shown in Upcoming during drags: { dateStr, insertBeforeTaskId } | null
 let _outlookPreview = $state(null);
+// Task list berth currently showing a "drop here to unschedule" ghost: taskId | null
+let _berthGhost      = $state(null);
 // The date currently shown in the day planner (defaults to today, cannot go before today)
 let _plannerDate    = $state(toISODate(new Date()));
 
@@ -37,6 +39,10 @@ export const activeTimer = {
 
 export const outlookPreview = {
   get value() { return _outlookPreview; }
+};
+
+export const berthGhost = {
+  get value() { return _berthGhost; }
 };
 
 export const plannerDate = {
@@ -73,6 +79,10 @@ export function setActiveTimer(timer) {
 
 export function setOutlookPreview(preview) {
   _outlookPreview = preview; // { dateStr, insertBeforeTaskId } | null
+}
+
+export function setBerthGhost(taskId) {
+  _berthGhost = taskId; // taskId | null
 }
 
 export function setPlannerDate(dateStr) {

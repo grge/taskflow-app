@@ -16,10 +16,6 @@ export const fixedBlocks = {
   get value() { return _fixedBlocks; }
 };
 
-export function getWorkSchedule() {
-  return _workSchedule;
-}
-
 export function updateWorkSchedule(newSchedule) {
   _workSchedule = newSchedule;
   unscheduleTasksOnDisabledDays(newSchedule);

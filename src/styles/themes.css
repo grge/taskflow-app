@@ -1,0 +1,140 @@
+/* ── Theme: Warm Parchment (default) ── */
+:root,
+[data-theme="warm-parchment"] {
+  --color-bg:                #FBF7EF;
+  --color-surface:           #FBF7EF;
+  --color-panel:             #F4EEE2;
+  --color-card:              #FFFFFF;
+  --color-border:            #EAE1D2;
+  --color-border-light:      #EAE1D2;
+
+  --color-text:              #2A2521;
+  --color-text-muted:        #6F665C;
+  --color-text-faint:        #9E9488;
+
+  --color-primary:           #2A2521;
+  --color-primary-hover:     #1A1612;
+  --color-primary-text:      #FBF7EF;
+
+  --color-accent:            #C8553C;
+  --color-accent-tint:       rgba(200, 85, 60, 0.10);
+  --color-accent-border:     rgba(200, 85, 60, 0.25);
+
+  --color-timer-bg:          #1a1a2e;
+  --color-timer-text:        #ffffff;
+  --color-timer-active:      #4CAF50;
+  --color-timer-border:      rgba(255,255,255,0.1);
+  --color-timer-btn-border:  rgba(255,255,255,0.35);
+  --color-timer-btn-bg:      rgba(255,255,255,0.08);
+  --color-timer-btn-hover:   rgba(255,255,255,0.18);
+
+  --modal-backdrop:          rgba(42, 37, 33, 0.35);
+  --color-shadow:            rgba(42, 37, 33, 0.08);
+  --color-inset-shadow:      rgba(42, 37, 33, 0.13);
+  --color-inset-highlight:   rgba(255, 255, 255, 0.45);
+}
+
+/* ── Theme: Sage Morning ── */
+[data-theme="sage-morning"] {
+  --color-bg:                #EEF3EB;
+  --color-surface:           #F4F7F0;
+  --color-panel:             #E2EAE0;
+  --color-card:              #F4F7F0;
+  --color-border:            #C8D8C2;
+  --color-border-light:      #C8D8C2;
+
+  --color-text:              #1C2A1C;
+  --color-text-muted:        #4E6048;
+  --color-text-faint:        #7A8A78;
+
+  --color-primary:           #2C3E2C;
+  --color-primary-hover:     #1C2E1C;
+  --color-primary-text:      #EEF3EB;
+
+  --color-accent:            #4A8048;
+  --color-accent-tint:       rgba(74, 128, 72, 0.10);
+  --color-accent-border:     rgba(74, 128, 72, 0.25);
+
+  --color-timer-bg:          #1C2A1C;
+  --color-timer-text:        #EEF3EB;
+  --color-timer-active:      #4A8048;
+  --color-timer-border:      rgba(255,255,255,0.08);
+  --color-timer-btn-border:  rgba(255,255,255,0.28);
+  --color-timer-btn-bg:      rgba(255,255,255,0.06);
+  --color-timer-btn-hover:   rgba(255,255,255,0.14);
+
+  --modal-backdrop:          rgba(28, 42, 28, 0.35);
+  --color-shadow:            rgba(28, 42, 28, 0.08);
+  --color-inset-shadow:      rgba(28, 42, 28, 0.13);
+  --color-inset-highlight:   rgba(255, 255, 255, 0.45);
+}
+
+/* ── Theme: Ember Night (dark warm) ── */
+[data-theme="ember-night"] {
+  --color-bg:                #1C1710;
+  --color-surface:           #201810;
+  --color-panel:             #1A1510;
+  --color-card:              #261E14;
+  --color-border:            #382C1E;
+  --color-border-light:      #302418;
+
+  --color-text:              #EDD8B8;
+  --color-text-muted:        #9A8A6A;
+  --color-text-faint:        #7A6A52;
+
+  --color-primary:           #D47840;
+  --color-primary-hover:     #C06830;
+  --color-primary-text:      #1A1510;
+
+  --color-accent:            #CC5038;
+  --color-accent-tint:       rgba(204, 80, 56, 0.12);
+  --color-accent-border:     rgba(204, 80, 56, 0.28);
+
+  --color-timer-bg:          #140F08;
+  --color-timer-text:        #EDD8B8;
+  --color-timer-active:      #D47840;
+  --color-timer-border:      rgba(237,216,184,0.10);
+  --color-timer-btn-border:  rgba(237,216,184,0.28);
+  --color-timer-btn-bg:      rgba(237,216,184,0.06);
+  --color-timer-btn-hover:   rgba(237,216,184,0.14);
+
+  --modal-backdrop:          rgba(0, 0, 0, 0.55);
+  --color-shadow:            rgba(0, 0, 0, 0.18);
+  --color-inset-shadow:      rgba(0, 0, 0, 0.5);
+  --color-inset-highlight:   rgba(237, 216, 184, 0.28);
+}
+
+/* ── Theme: Dusk (dark cool) ── */
+[data-theme="dusk"] {
+  --color-bg:                #191C28;
+  --color-surface:           #1C1F2E;
+  --color-panel:             #171A26;
+  --color-card:              #1E2130;
+  --color-border:            #2A2E44;
+  --color-border-light:      #252840;
+
+  --color-text:              #E2DBD0;
+  --color-text-muted:        #8884A0;
+  --color-text-faint:        #6A6880;
+
+  --color-primary:           #CC6858;
+  --color-primary-hover:     #BC5848;
+  --color-primary-text:      #ffffff;
+
+  --color-accent:            #C05048;
+  --color-accent-tint:       rgba(192, 80, 72, 0.12);
+  --color-accent-border:     rgba(192, 80, 72, 0.28);
+
+  --color-timer-bg:          #13151E;
+  --color-timer-text:        #E2DBD0;
+  --color-timer-active:      #CC6858;
+  --color-timer-border:      rgba(226,219,208,0.10);
+  --color-timer-btn-border:  rgba(226,219,208,0.28);
+  --color-timer-btn-bg:      rgba(226,219,208,0.06);
+  --color-timer-btn-hover:   rgba(226,219,208,0.14);
+
+  --modal-backdrop:          rgba(0, 0, 0, 0.55);
+  --color-shadow:            rgba(0, 0, 0, 0.18);
+  --color-inset-shadow:      rgba(0, 0, 0, 0.5);
+  --color-inset-highlight:   rgba(226, 219, 208, 0.28);
+}

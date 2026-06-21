@@ -49,14 +49,14 @@
     gap: 10px;
     padding: 0 var(--spacing-md);
     height: 44px;
-    background: #1a1a2e;
-    color: white;
+    background: var(--color-timer-bg);
+    color: var(--color-timer-text);
     flex-shrink: 0;
-    border-top: 1px solid rgba(255,255,255,0.1);
+    border-top: 1px solid var(--color-timer-border);
   }
 
   .timer-icon {
-    color: #4CAF50;
+    color: var(--color-timer-active);
     font-size: 12px;
   }
 
@@ -70,13 +70,13 @@
   }
 
   .timer-sep {
-    color: rgba(255,255,255,0.4);
+    opacity: 0.4;
   }
 
   .timer-elapsed {
     font-family: Menlo, Consolas, monospace;
     font-size: 14px;
-    color: #4CAF50;
+    color: var(--color-timer-active);
     min-width: 80px;
   }
 
@@ -92,14 +92,14 @@
   }
 
   .timer-bar .btn-ghost {
-    color: rgba(255, 255, 255, 0.85);
-    border-color: rgba(255, 255, 255, 0.35);
-    background: rgba(255, 255, 255, 0.08);
+    color: var(--color-timer-text);
+    border-color: var(--color-timer-btn-border);
+    background: var(--color-timer-btn-bg);
   }
 
   .timer-bar .btn-ghost:hover {
-    background: rgba(255, 255, 255, 0.18);
-    border-color: rgba(255, 255, 255, 0.6);
-    color: white;
+    background: var(--color-timer-btn-hover);
+    border-color: var(--color-timer-btn-border);
+    color: var(--color-timer-text);
   }
 </style>

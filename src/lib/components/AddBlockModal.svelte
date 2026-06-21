@@ -2,6 +2,7 @@
   import { closeModal } from '../../stores/ui.svelte.js';
   import { addFixedBlock } from '../../stores/schedule.svelte.js';
   import { toISODate } from '../calendar.js';
+  import { SNAP_MINUTES } from '../constants.js';
 
   const DURATION_PRESETS = [
     { label: '30m', value: 30 },
@@ -14,7 +15,7 @@
   function nowTimeStr() {
     const n = new Date();
     const h = String(n.getHours()).padStart(2, '0');
-    const m = String(Math.round(n.getMinutes() / 15) * 15 % 60).padStart(2, '0');
+    const m = String(Math.round(n.getMinutes() / SNAP_MINUTES) * SNAP_MINUTES % 60).padStart(2, '0');
     return `${h}:${m}`;
   }
 

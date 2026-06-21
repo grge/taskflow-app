@@ -1,6 +1,14 @@
 <script>
   import { closeModal, setActiveTab } from '../../stores/ui.svelte.js';
   import { workSchedule, updateWorkSchedule } from '../../stores/schedule.svelte.js';
+  import { theme, setTheme } from '../../stores/theme.svelte.js';
+
+  const THEMES = [
+    { id: 'warm-parchment', label: 'Warm Parchment', desc: 'Earthy, nostalgic, old book' },
+    { id: 'sage-morning',   label: 'Sage Morning',   desc: 'Botanical, garden-fresh' },
+    { id: 'ember-night',    label: 'Ember Night',    desc: 'Dark · warm firelit focus' },
+    { id: 'dusk',           label: 'Dusk',           desc: 'Dark · cool, blue hour' },
+  ];
 
   let { inline = false } = $props();
   function dismiss() { inline ? setActiveTab('plan') : closeModal(); }
@@ -43,6 +51,24 @@
     </div>
 
     <div class="settings-body">
+
+      <section>
+        <h3 class="section-title">Theme</h3>
+        <div class="theme-grid">
+          {#each THEMES as t}
+            <button
+              class="theme-btn"
+              class:active={theme.value === t.id}
+              data-theme-preview={t.id}
+              onclick={() => setTheme(t.id)}
+            >
+              <span class="theme-swatch" data-theme-preview={t.id}></span>
+              <span class="theme-name">{t.label}</span>
+              <span class="theme-desc">{t.desc}</span>
+            </button>
+          {/each}
+        </div>
+      </section>
 
       <section>
         <h3 class="section-title">Work Hours</h3>
@@ -112,6 +138,63 @@
     min-width: 420px;
     max-width: 520px;
     padding: 0;
+  }
+
+  /* ── Theme picker ── */
+  .theme-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .theme-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.12s, background 0.12s;
+  }
+
+  .theme-btn:hover {
+    background: var(--color-bg);
+    border-color: var(--color-text-muted);
+  }
+
+  .theme-btn.active {
+    border-color: var(--color-primary);
+    background: var(--color-bg);
+    box-shadow: 0 0 0 2px var(--color-primary);
+  }
+
+  .theme-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    border: 1px solid rgba(0,0,0,0.10);
+  }
+
+  /* Swatch colours use inline data-theme-preview attribute so they always
+     show the preview colour regardless of the active theme */
+  .theme-swatch[data-theme-preview="warm-parchment"] { background: #F4EEE2; box-shadow: inset 0 0 0 3px #C8553C; }
+  .theme-swatch[data-theme-preview="sage-morning"]   { background: #E2EAE0; box-shadow: inset 0 0 0 3px #4A8048; }
+  .theme-swatch[data-theme-preview="ember-night"]    { background: #261E14; box-shadow: inset 0 0 0 3px #D47840; }
+  .theme-swatch[data-theme-preview="dusk"]           { background: #1E2130; box-shadow: inset 0 0 0 3px #CC6858; }
+
+  .theme-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text);
+    line-height: 1.2;
+  }
+
+  .theme-desc {
+    display: none;
   }
 
   /* ── Header ── */

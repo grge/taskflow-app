@@ -20,10 +20,6 @@ npm install
 npm run dev
 ```
 
-## Spec & implementation notes
-
-See [`SPEC-v3.md`](./SPEC-v3.md) for the full technical specification and [`IMPLEMENTATION.md`](./IMPLEMENTATION.md) for decisions made during implementation.
-
 ## Contact
 
 George Dickeson — [george.dickeson@gmail.com](mailto:george.dickeson@gmail.com)

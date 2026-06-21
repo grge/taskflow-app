@@ -1,10 +1,11 @@
 import interact from 'interactjs';
-import { setDragState, setPreviewBlock, setOutlookPreview } from '../stores/ui.svelte.js';
+import { setDragState, setPreviewBlock, setOutlookPreview, setBerthGhost } from '../stores/ui.svelte.js';
 import { scheduleTask, unscheduleTask, tasks } from '../stores/tasks.svelte.js';
 import { splitTaskAcrossDays, latestValidDropPosition } from './scheduling.js';
 import { getVisibleWorkDays, retreatWork, toISODate, getDaySchedule } from './calendar.js';
 import { workSchedule, fixedBlocks } from '../stores/schedule.svelte.js';
 import { reorderAndBumpForward } from './outlook-scheduler.js';
+import { SNAP_MINUTES } from './constants.js';
 
 // ─── DOM hit-testing ─────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ function outlookDayFromPoint(x, y) {
   return document.elementsFromPoint(x, y)
     .find(el => el.dataset.outlookDay) ?? null;
 }
+
 
 // Returns the outlook card element under the pointer that belongs to dayEl,
 // excluding the card for excludeTaskId (the one being dragged).
@@ -59,13 +61,13 @@ function resolveTaskStart(cell, grabOffsetMinutes, schedule) {
 
   const taskStart = retreatWork(pointerDate, grabOffsetMinutes, schedule);
   const totalMinutes = taskStart.getHours() * 60 + taskStart.getMinutes();
-  const snapped = Math.round(totalMinutes / 15) * 15;
+  const snapped = Math.round(totalMinutes / SNAP_MINUTES) * SNAP_MINUTES;
 
   const dateStr = toISODate(taskStart);
   const day = getDaySchedule(taskStart, schedule);
   if (!day) return null;
 
-  const clampedStart = Math.max(day.startMinutes, Math.min(snapped, day.endMinutes - 15));
+  const clampedStart = Math.max(day.startMinutes, Math.min(snapped, day.endMinutes - SNAP_MINUTES));
   return { date: dateStr, startMinutes: clampedStart };
 }
 
@@ -82,9 +84,11 @@ function computeBlocksForCell(task, cell, grabOffsetMinutes) {
 
   let blocks = splitTaskAcrossDays(task.id, taskStart.date, taskStart.startMinutes, task.estimatedMinutes, visibleDays);
   if (blocks === null) {
-    const clamped = latestValidDropPosition(task.estimatedMinutes, visibleDays);
-    if (clamped !== null) {
-      blocks = splitTaskAcrossDays(task.id, clamped.date, clamped.startMinutes, task.estimatedMinutes, visibleDays);
+    // taskStart resolved to before the visible window (grab offset retreated past
+    // today's start) — clamp to the earliest available slot, not the latest.
+    const first = visibleDays[0];
+    if (first && taskStart.date < toISODate(first.date)) {
+      blocks = splitTaskAcrossDays(task.id, toISODate(first.date), first.daySchedule.startMinutes, task.estimatedMinutes, visibleDays);
     }
   }
   return blocks;
@@ -159,7 +163,7 @@ function commitOutlookDrop(movedTaskId, sourceDateStr, targetDateStr, insertBefo
 
 // ─── shared move/end handlers (Today planner + task list drags) ──────────────
 
-function makeDragHandlers({ getTaskId, getGrabOffsetMinutes }) {
+function makeDragHandlers({ getTaskId, getGrabOffsetMinutes, dropOutsideUnschedules = false }) {
   let lastKey          = null;
   let lastOutlookDrop  = null; // { dateStr, insertBeforeTaskId } — mirrors pendingDrop in draggableOutlookCard
 
@@ -174,6 +178,7 @@ function makeDragHandlers({ getTaskId, getGrabOffsetMinutes }) {
       lastKey = key;
       lastOutlookDrop = null;
       setOutlookPreview(null);
+      setBerthGhost(null);
       const task = getTask(getTaskId());
       if (task) setPreviewBlock(computeBlocksForCell(task, cell, getGrabOffsetMinutes()));
     } else {
@@ -182,6 +187,7 @@ function makeDragHandlers({ getTaskId, getGrabOffsetMinutes }) {
 
       const dayEl = outlookDayFromPoint(x, y);
       if (dayEl) {
+        setBerthGhost(null);
         const dayDateStr = dayEl.dataset.outlookDay;
         const card       = outlookCardFromPoint(x, y, dayEl, null);
 
@@ -218,6 +224,7 @@ function makeDragHandlers({ getTaskId, getGrabOffsetMinutes }) {
       } else {
         lastOutlookDrop = null;
         setOutlookPreview(null);
+        setBerthGhost(dropOutsideUnschedules ? getTaskId() : null);
       }
     }
   }
@@ -247,6 +254,7 @@ function makeDragHandlers({ getTaskId, getGrabOffsetMinutes }) {
 
     setPreviewBlock(null);
     setOutlookPreview(null);
+    setBerthGhost(null);
     setDragState(null);
   }
 
@@ -262,12 +270,10 @@ export function draggableTask(node, { taskId }) {
     listeners: {
       start() {
         setDragState({ type: 'task', taskId });
-        node.classList.add('dragging');
         startDragCursor();
       },
       move: handlers.onMove,
       end(event) {
-        node.classList.remove('dragging');
         endDragCursor();
         handlers.onEnd(event);
       }
@@ -284,13 +290,13 @@ export function draggableTask(node, { taskId }) {
 
 export function draggableBlockVertical(node, { taskId, block }) {
   let grabOffsetMinutes = 0;
-  const handlers = makeDragHandlers({ getTaskId: () => taskId, getGrabOffsetMinutes: () => grabOffsetMinutes });
+  const handlers = makeDragHandlers({ getTaskId: () => taskId, getGrabOffsetMinutes: () => grabOffsetMinutes, dropOutsideUnschedules: true });
 
   interact(node).draggable({
     listeners: {
       start(event) {
         const quarterCell = document.querySelector('[data-start]');
-        const pixelsPerMinute = quarterCell ? quarterCell.getBoundingClientRect().height / 15 : 1;
+        const pixelsPerMinute = quarterCell ? quarterCell.getBoundingClientRect().height / SNAP_MINUTES : 1;
         const pyIntoBlock = event.client.y - node.getBoundingClientRect().top;
 
         const task = getTask(taskId);
@@ -302,57 +308,20 @@ export function draggableBlockVertical(node, { taskId, block }) {
 
         grabOffsetMinutes = precedingMinutes + (pyIntoBlock / pixelsPerMinute);
         setDragState({ type: 'block', taskId });
-        node.style.opacity = '0.3';
         startDragCursor();
       },
       move: handlers.onMove,
       end(event) {
-        node.style.opacity = '';
         endDragCursor();
         const { x, y } = event.client;
-        // Unschedule if dropped outside both targets
-        if (!cellFromPoint(x, y) && !outlookDayFromPoint(x, y)) unscheduleTask(taskId);
-        handlers.onEnd(event);
-      }
-    }
-  });
-
-  return {
-    update(params) { taskId = params.taskId; block = params.block; },
-    destroy() { interact(node).unset(); }
-  };
-}
-
-// ─── draggableBlock action (horizontal, unused in current UI) ────────────────
-
-export function draggableBlock(node, { taskId, block }) {
-  let grabOffsetMinutes = 0;
-  const handlers = makeDragHandlers({ getTaskId: () => taskId, getGrabOffsetMinutes: () => grabOffsetMinutes });
-
-  interact(node).draggable({
-    listeners: {
-      start(event) {
-        const quarterCell = document.querySelector('[data-start]');
-        const pixelsPerMinute = quarterCell ? quarterCell.getBoundingClientRect().width / 15 : 1;
-        const pxIntoBlock = event.client.x - node.getBoundingClientRect().left;
-
-        const task = getTask(taskId);
-        const precedingMinutes = task
-          ? task.scheduledBlocks
-              .filter(b => b.partIndex != null && b.partIndex < (block.partIndex ?? 1))
-              .reduce((sum, b) => sum + b.durationMinutes, 0)
-          : 0;
-
-        grabOffsetMinutes = precedingMinutes + (pxIntoBlock / pixelsPerMinute);
-        setDragState({ type: 'block', taskId });
-        node.style.opacity = '0.3';
-        startDragCursor();
-      },
-      move: handlers.onMove,
-      end(event) {
-        node.style.opacity = '';
-        endDragCursor();
-        if (!cellFromPoint(event.client.x, event.client.y)) unscheduleTask(taskId);
+        if (!cellFromPoint(x, y) && !outlookDayFromPoint(x, y)) {
+          unscheduleTask(taskId);
+          setPreviewBlock(null);
+          setOutlookPreview(null);
+          setBerthGhost(null);
+          setDragState(null);
+          return;
+        }
         handlers.onEnd(event);
       }
     }

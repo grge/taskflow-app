@@ -2,7 +2,7 @@
   import { tasks, autoScheduleAll, clearSchedule, unscheduleTask, editTask } from '../../stores/tasks.svelte.js';
   import { workSchedule, fixedBlocks, getFixedBlocksForDate, editFixedBlock } from '../../stores/schedule.svelte.js';
   import { estimationMultiplier } from '../../stores/estimation.svelte.js';
-  import { openModal, previewBlock, plannerDate, advancePlannerDay, retreatPlannerDay, resetPlannerToToday } from '../../stores/ui.svelte.js';
+  import { openModal, previewBlock, plannerDate, advancePlannerDay, retreatPlannerDay, resetPlannerToToday, dragState } from '../../stores/ui.svelte.js';
   import { clock } from '../../stores/clock.svelte.js';
   import { getDaySchedule, toISODate, minutesToTimeString, formatDateLabel } from '../calendar.js';
   import { draggableBlockVertical } from '../dnd.js';
@@ -49,23 +49,6 @@
   }
   function heightPct(durationMinutes) {
     return (durationMinutes / span) * 100;
-  }
-
-  // Tint a hex pressure color toward white for the block background
-  function blockBg(color) {
-    // color is e.g. "#C8553C" — blend 88% toward white
-    const r = parseInt(color.slice(1,3), 16);
-    const g = parseInt(color.slice(3,5), 16);
-    const b = parseInt(color.slice(5,7), 16);
-    const mix = (c) => Math.round(c + (255 - c) * 0.82);
-    return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
-  }
-  function blockBorder(color) {
-    const r = parseInt(color.slice(1,3), 16);
-    const g = parseInt(color.slice(3,5), 16);
-    const b = parseInt(color.slice(5,7), 16);
-    const mix = (c) => Math.round(c + (255 - c) * 0.52);
-    return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
   }
 
   // Quarter-hour drop slots, skipping fixed blocks
@@ -219,13 +202,12 @@
 
         <!-- Scheduled task blocks -->
         {#each viewBlocks as { block, task }}
-          {@const color  = blockColor(task)}
-          {@const bg     = blockBg(color)}
-          {@const border = blockBorder(color)}
+          {@const color = blockColor(task)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="task-block"
-            style="top:{toPct(block.startMinutes)}%; height:{heightPct(block.durationMinutes)}%; background:{bg}; border-color:{border};"
+            class:is-dragging={dragState.value?.taskId === task.id}
+            style="top:{toPct(block.startMinutes)}%; height:{heightPct(block.durationMinutes)}%;"
             use:draggableBlockVertical={{ taskId: task.id, block }}
           >
             <div class="block-accent" style="background:{color}"></div>
@@ -421,8 +403,8 @@
     flex: 1;
     position: relative;
     min-height: 420px;
-    background: #fff;
-    border: 1px solid #EAE1D2;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
     overflow: visible; /* allow now-dot to hang left */
   }
@@ -433,7 +415,7 @@
     left: 0;
     right: 0;
     height: 1px;
-    background: #F2EBDD;
+    background: var(--color-border-light);
     pointer-events: none;
   }
 
@@ -452,12 +434,12 @@
     right: 0;
     background: repeating-linear-gradient(
       45deg,
-      rgba(0,0,0,0.03),
-      rgba(0,0,0,0.03) 3px,
+      var(--color-border-light),
+      var(--color-border-light) 3px,
       transparent 3px,
       transparent 8px
     );
-    border-bottom: 1px solid #EAE1D2;
+    border-bottom: 1px solid var(--color-border);
     padding: 3px 8px;
     z-index: 3;
     pointer-events: none;
@@ -493,7 +475,8 @@
     position: absolute;
     left: 0;
     right: 0;
-    border: 1px solid;
+    background: var(--color-card);
+    border: 1px solid var(--color-border-light);
     border-radius: 7px;
     z-index: 4;
     cursor: grab;
@@ -504,12 +487,24 @@
     box-sizing: border-box;
     display: flex;
     align-items: stretch;
+    box-shadow: 0 1px 3px var(--color-shadow);
+    transition: box-shadow 0.1s, border-color 0.1s;
+  }
+
+  .task-block:hover {
+    border-color: var(--color-border);
+    box-shadow: 0 2px 6px var(--color-shadow);
   }
 
   .task-block:active { cursor: grabbing; }
 
+  .task-block.is-dragging {
+    opacity: 0.35;
+    box-shadow: none;
+  }
+
   .block-accent {
-    width: 4px;
+    width: 5px;
     flex-shrink: 0;
     border-radius: 6px 0 0 6px;
   }
@@ -581,8 +576,9 @@
     position: absolute;
     left: 0;
     right: 0;
-    background: var(--color-accent);
-    opacity: 0.18;
+    background: var(--color-panel);
+    border: 1.5px dashed var(--color-border);
+    opacity: 0.7;
     border-radius: 7px;
     z-index: 5;
     pointer-events: none;
@@ -594,7 +590,7 @@
     left: 0;
     right: 0;
     height: 2px;
-    background: #D86B45;
+    background: var(--color-accent);
     z-index: 6;
     pointer-events: none;
   }
@@ -606,6 +602,6 @@
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #D86B45;
+    background: var(--color-accent);
   }
 </style>

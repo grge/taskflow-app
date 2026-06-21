@@ -158,6 +158,40 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     overflow: hidden;
-    background: white;
+    background: var(--color-card);
+  }
+
+  /* ── Range inputs ── */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--color-border);
+    outline: none;
+    border: none;
+    padding: 0;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    cursor: pointer;
+    border: 2px solid var(--color-card);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    cursor: pointer;
+    border: 2px solid var(--color-card);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
   }
 </style>

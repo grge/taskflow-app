@@ -99,7 +99,7 @@
           {#each day.entries as { task, block } (task.id)}
             {#if ghost && ghost.insertBeforeTaskId === task.id}
               <div class="outlook-card outlook-card-ghost">
-                <div class="card-dot"></div>
+                <div class="card-accent"></div>
                 <div class="card-body">
                   <span class="card-desc">{ghostTask?.description ?? '…'}</span>
                   {#if ghostTask}<span class="card-duration">{formatDuration(ghostTask.estimatedMinutes)}</span>{/if}
@@ -115,7 +115,7 @@
               data-outlook-task-id={task.id}
               use:draggableOutlookCard={{ taskId: task.id, dateStr: day.dateStr }}
             >
-              <div class="card-dot" style="background:{color}"></div>
+              <div class="card-accent" style="background:{color}"></div>
               <div class="card-body">
                 {#if editingTaskId === task.id}
                   <!-- svelte-ignore a11y_autofocus -->
@@ -142,7 +142,7 @@
           {/each}
           {#if ghost && ghost.insertBeforeTaskId === null}
             <div class="outlook-card outlook-card-ghost">
-              <div class="card-dot"></div>
+              <div class="card-accent"></div>
               <div class="card-body">
                 <span class="card-desc">{ghostTask?.description ?? '…'}</span>
                 {#if ghostTask}<span class="card-duration">{formatDuration(ghostTask.estimatedMinutes)}</span>{/if}
@@ -218,9 +218,8 @@
   /* ── Outlook card ── */
   .outlook-card {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px 8px 12px;
+    align-items: stretch;
+    gap: 0;
     margin: 2px 10px;
     background: var(--color-card);
     border: 1px solid var(--color-border-light);
@@ -230,10 +229,12 @@
     user-select: none;
     transition: box-shadow 0.1s, border-color 0.1s;
     position: relative;
+    overflow: hidden;
+    box-shadow: 0 1px 3px var(--color-shadow);
   }
 
   .outlook-card:hover {
-    box-shadow: 0 1px 6px rgba(42,37,33,0.08);
+    box-shadow: 0 2px 6px var(--color-shadow);
     border-color: var(--color-border);
   }
 
@@ -250,16 +251,15 @@
     cursor: default;
     pointer-events: none;
     background: var(--color-panel);
+    box-shadow: none;
   }
 
-  .outlook-card.outlook-card-ghost .card-dot {
+  .outlook-card.outlook-card-ghost .card-accent {
     background: var(--color-border);
   }
 
-  .card-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
+  .card-accent {
+    width: 5px;
     flex-shrink: 0;
   }
 
@@ -269,6 +269,7 @@
     display: flex;
     align-items: baseline;
     gap: 6px;
+    padding: 8px 10px;
   }
 
   .card-desc {
