@@ -94,27 +94,42 @@ export function removeBlocksForTask(task) {
   return { ...task, scheduledBlocks: [], lastModifiedAt: new Date() };
 }
 
-export function findOverlapsOnDay(blocks, dateStr) {
-  const dayBlocks = blocks.filter(b => b.date === dateStr);
-  // Sort by start time
-  const sorted = [...dayBlocks].sort((a, b) => a.startMinutes - b.startMinutes);
+// Assigns each item a lane (0-indexed horizontal slot) and laneCount (how many
+// lanes wide its overlap cluster is), so overlapping items render side-by-side
+// at width 1/laneCount instead of one fully occluding another. Works on any
+// mixed-type array of {startMinutes, durationMinutes} items.
+export function layoutOverlapsOnDay(items, dateStr) {
+  const dayItems = items.filter(b => b.date === dateStr);
+  const sorted = [...dayItems].sort((a, b) => a.startMinutes - b.startMinutes);
+  const result = sorted.map(b => ({ ...b, lane: 0, laneCount: 1 }));
 
-  // Assign zIndex/offset by detecting overlaps
-  const result = sorted.map(b => ({ ...b, zIndex: 0, overlapOffset: 0 }));
+  const laneEnds = []; // end time of the last item placed in each lane, for the active cluster
+  let clusterMembers = [];
 
-  for (let i = 0; i < result.length; i++) {
-    for (let j = i + 1; j < result.length; j++) {
-      const a = result[i];
-      const bk = result[j];
-      const overlaps =
-        a.startMinutes < bk.startMinutes + bk.durationMinutes &&
-        bk.startMinutes < a.startMinutes + a.durationMinutes;
-      if (overlaps) {
-        result[j].zIndex = result[i].zIndex + 1;
-        result[j].overlapOffset = result[j].zIndex * 10;
-      }
+  function closeCluster() {
+    const laneCount = laneEnds.length;
+    if (laneCount > 1) {
+      for (const item of clusterMembers) item.laneCount = laneCount;
     }
+    laneEnds.length = 0;
+    clusterMembers = [];
   }
+
+  let clusterEnd = -1; // max end time among items placed so far in the active cluster
+  for (const item of result) {
+    if (clusterMembers.length && item.startMinutes >= clusterEnd) closeCluster();
+
+    let lane = laneEnds.findIndex(endTime => item.startMinutes >= endTime);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(0);
+    }
+    laneEnds[lane] = item.startMinutes + item.durationMinutes;
+    item.lane = lane;
+    clusterMembers.push(item);
+    clusterEnd = Math.max(clusterEnd, item.startMinutes + item.durationMinutes);
+  }
+  closeCluster();
 
   return result;
 }

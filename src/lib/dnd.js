@@ -3,7 +3,7 @@ import { setDragState, setPreviewBlock, setOutlookPreview, setBerthGhost } from 
 import { scheduleTask, unscheduleTask, tasks } from '../stores/tasks.svelte.js';
 import { splitTaskAcrossDays, latestValidDropPosition } from './scheduling.js';
 import { getVisibleWorkDays, retreatWork, toISODate, getDaySchedule } from './calendar.js';
-import { workSchedule, fixedBlocks } from '../stores/schedule.svelte.js';
+import { workSchedule, fixedBlocks, editFixedBlock } from '../stores/schedule.svelte.js';
 import { reorderAndBumpForward } from './outlook-scheduler.js';
 import { SNAP_MINUTES } from './constants.js';
 
@@ -329,6 +329,77 @@ export function draggableBlockVertical(node, { taskId, block }) {
 
   return {
     update(params) { taskId = params.taskId; block = params.block; },
+    destroy() { interact(node).unset(); }
+  };
+}
+
+// ─── draggableFixedBlock action ──────────────────────────────────────────────
+// Fixed blocks live on a single day and never split — drag is confined to
+// Today planner cells on the same day, snapped to SNAP_MINUTES and clamped
+// to the work day. Manual placement is unrestricted (can overlap tasks or
+// other fixed blocks); only the auto-scheduler treats fixed blocks as obstacles.
+
+function resolveFixedBlockDrop(cell, grabOffsetMinutes, durationMinutes) {
+  const dateStr = cell.dataset.date;
+  const daySchedule = getDaySchedule(new Date(dateStr + 'T00:00:00'), workSchedule.value);
+  if (!daySchedule) return null;
+
+  const rawStart = parseInt(cell.dataset.start, 10) - grabOffsetMinutes;
+  const snapped = Math.round(rawStart / SNAP_MINUTES) * SNAP_MINUTES;
+  const clamped = Math.max(daySchedule.startMinutes, Math.min(snapped, daySchedule.endMinutes - durationMinutes));
+  return { date: dateStr, startMinutes: clamped };
+}
+
+export function draggableFixedBlock(node, { fixedBlockId, block }) {
+  let grabOffsetMinutes = 0;
+  let lastKey = null;
+
+  function previewFromPoint(x, y) {
+    const cell = cellFromPoint(x, y);
+    if (!cell) { lastKey = null; setPreviewBlock(null); return; }
+
+    const key = cellKey(cell);
+    if (key === lastKey) return;
+    lastKey = key;
+
+    const drop = resolveFixedBlockDrop(cell, grabOffsetMinutes, block.durationMinutes);
+    if (!drop) { setPreviewBlock(null); return; }
+
+    setPreviewBlock([{ date: drop.date, startMinutes: drop.startMinutes, durationMinutes: block.durationMinutes }]);
+  }
+
+  interact(node).draggable({
+    listeners: {
+      start(event) {
+        const quarterCell = document.querySelector('[data-start]');
+        const pixelsPerMinute = quarterCell ? quarterCell.getBoundingClientRect().height / SNAP_MINUTES : 1;
+        const pyIntoBlock = event.client.y - node.getBoundingClientRect().top;
+        grabOffsetMinutes = pyIntoBlock / pixelsPerMinute;
+        setDragState({ type: 'fixedBlock', fixedBlockId });
+        startDragCursor();
+      },
+      move(event) {
+        previewFromPoint(event.client.x, event.client.y);
+      },
+      end(event) {
+        endDragCursor();
+        lastKey = null;
+        const { x, y } = event.client;
+        const cell = cellFromPoint(x, y);
+
+        if (cell) {
+          const drop = resolveFixedBlockDrop(cell, grabOffsetMinutes, block.durationMinutes);
+          if (drop) editFixedBlock(fixedBlockId, { date: drop.date, startMinutes: drop.startMinutes });
+        }
+
+        setPreviewBlock(null);
+        setDragState(null);
+      }
+    }
+  });
+
+  return {
+    update(params) { fixedBlockId = params.fixedBlockId; block = params.block; },
     destroy() { interact(node).unset(); }
   };
 }

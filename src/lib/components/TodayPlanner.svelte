@@ -1,12 +1,13 @@
 <script>
   import { tasks, autoScheduleAll, clearSchedule, unscheduleTask, editTask } from '../../stores/tasks.svelte.js';
-  import { workSchedule, fixedBlocks, getFixedBlocksForDate, editFixedBlock } from '../../stores/schedule.svelte.js';
+  import { workSchedule, fixedBlocks, getFixedBlocksForDate, editFixedBlock, removeFixedBlock } from '../../stores/schedule.svelte.js';
   import { estimationMultiplier } from '../../stores/estimation.svelte.js';
   import { openModal, previewBlock, plannerDate, advancePlannerDay, retreatPlannerDay, resetPlannerToToday, dragState } from '../../stores/ui.svelte.js';
   import { clock } from '../../stores/clock.svelte.js';
   import { getDaySchedule, toISODate, minutesToTimeString, formatDateLabel } from '../calendar.js';
-  import { draggableBlockVertical } from '../dnd.js';
+  import { draggableBlockVertical, draggableFixedBlock } from '../dnd.js';
   import { pAt, pToColor } from '../envelope.js';
+  import { layoutOverlapsOnDay } from '../scheduling.js';
 
   let todayStr    = $derived(clock.today);
   let viewDateStr = $derived(plannerDate.value);
@@ -31,6 +32,30 @@
     (previewBlock.value ?? []).filter(b => b.date === viewDateStr)
   );
 
+  // Combine fixed + task blocks so overlapping ones (regardless of type) are
+  // laid out side-by-side instead of one fully covering the other.
+  let overlapLayout = $derived((() => {
+    const tagged = [
+      ...viewFixed.map(fb => ({ date: fb.date, startMinutes: fb.startMinutes, durationMinutes: fb.durationMinutes, kind: 'fixed', id: fb.id })),
+      ...viewBlocks.map(({ block, task }) => ({ date: block.date, startMinutes: block.startMinutes, durationMinutes: block.durationMinutes, kind: 'task', id: task.id })),
+    ];
+    const laid = layoutOverlapsOnDay(tagged, viewDateStr);
+    const map = new Map();
+    for (const item of laid) map.set(`${item.kind}:${item.id}`, item);
+    return map;
+  })());
+
+  function overlapStyle(kind, id) {
+    const item = overlapLayout.get(`${kind}:${id}`);
+    if (!item || item.laneCount <= 1) return '';
+    const gapPct = 1.5;
+    const width = 100 / item.laneCount;
+    const left = item.lane * width;
+    const insetLeft = left === 0 ? 0 : gapPct / 2;
+    const insetRight = item.lane === item.laneCount - 1 ? 0 : gapPct / 2;
+    return `left:calc(${left}% + ${insetLeft}px); width:calc(${width}% - ${insetLeft + insetRight}px); right:auto;`;
+  }
+
   let nowMinutes    = $derived(clock.now.getHours() * 60 + clock.now.getMinutes());
   let nowPct        = $derived(Math.max(0, Math.min(100, (nowMinutes - dayStart) / span * 100)));
   let isWorkHours   = $derived(isToday && !!daySchedule && nowMinutes >= dayStart && nowMinutes <= dayEnd);
@@ -51,15 +76,13 @@
     return (durationMinutes / span) * 100;
   }
 
-  // Quarter-hour drop slots, skipping fixed blocks
+  // Quarter-hour drop slots — manual placement is unrestricted; only the
+  // auto-scheduler treats fixed blocks as obstacles.
+  let draggedFixedBlockId = $derived(dragState.value?.fixedBlockId ?? null);
   let dropSlots = $derived((() => {
     if (!daySchedule) return [];
-    const fixed = viewFixed.slice().sort((a, b) => a.startMinutes - b.startMinutes);
     const slots = [];
-    for (let m = dayStart; m < dayEnd; m += 15) {
-      const blocked = fixed.some(fb => m < fb.startMinutes + fb.durationMinutes && m + 15 > fb.startMinutes);
-      if (!blocked) slots.push(m);
-    }
+    for (let m = dayStart; m < dayEnd; m += 15) slots.push(m);
     return slots;
   })());
 
@@ -179,7 +202,9 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="fixed-block"
-            style="top:{toPct(fb.startMinutes)}%; height:{heightPct(fb.durationMinutes)}%"
+            class:is-dragging={draggedFixedBlockId === fb.id}
+            style="top:{toPct(fb.startMinutes)}%; height:{heightPct(fb.durationMinutes)}%; {overlapStyle('fixed', fb.id)}"
+            use:draggableFixedBlock={{ fixedBlockId: fb.id, block: fb }}
           >
             {#if editingBlockId === fb.id}
               <!-- svelte-ignore a11y_autofocus -->
@@ -188,15 +213,17 @@
                 bind:value={editingBlockLabel}
                 onblur={commitBlockLabelEdit}
                 onkeydown={onBlockLabelKeydown}
+                onclick={(e) => e.stopPropagation()}
                 autofocus
               />
             {:else}
               <span
                 class="fixed-label"
-                ondblclick={() => startBlockLabelEdit(fb)}
+                ondblclick={(e) => { e.stopPropagation(); startBlockLabelEdit(fb); }}
                 title="Double-click to rename"
               >{fb.label}</span>
             {/if}
+            <button class="unschedule-x" onclick={(e) => { e.stopPropagation(); removeFixedBlock(fb.id); }} title="Delete block">×</button>
           </div>
         {/each}
 
@@ -207,7 +234,7 @@
           <div
             class="task-block"
             class:is-dragging={dragState.value?.taskId === task.id}
-            style="top:{toPct(block.startMinutes)}%; height:{heightPct(block.durationMinutes)}%;"
+            style="top:{toPct(block.startMinutes)}%; height:{heightPct(block.durationMinutes)}%; {overlapStyle('task', task.id)}"
             use:draggableBlockVertical={{ taskId: task.id, block }}
           >
             <div class="block-accent" style="background:{color}"></div>
@@ -442,17 +469,30 @@
     border-bottom: 1px solid var(--color-border);
     padding: 3px 8px;
     z-index: 3;
-    pointer-events: none;
     overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
   }
 
+  .fixed-block:active { cursor: grabbing; }
+
+  .fixed-block.is-dragging {
+    opacity: 0.35;
+  }
+
+  .fixed-block:hover .unschedule-x { opacity: 1; }
+
   .fixed-label {
+    display: block;
     font-size: 10px;
     color: var(--color-text-muted);
     font-weight: 500;
-    pointer-events: all;
     cursor: text;
-    width: fit-content;
+    max-width: calc(100% - 14px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .fixed-label-input {
