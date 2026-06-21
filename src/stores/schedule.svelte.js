@@ -1,6 +1,7 @@
 import { loadState } from '../lib/persistence.js';
 import { DEFAULT_WORK_SCHEDULE } from '../lib/constants.js';
-import { unscheduleTasksOnDisabledDays } from './tasks.svelte.js';
+import { getDaySchedule } from '../lib/calendar.js';
+import { revalidateScheduleAfterHoursChange } from './tasks.svelte.js';
 
 const _initialState = loadState();
 
@@ -18,7 +19,11 @@ export const fixedBlocks = {
 
 export function updateWorkSchedule(newSchedule) {
   _workSchedule = newSchedule;
-  unscheduleTasksOnDisabledDays(newSchedule);
+  revalidateScheduleAfterHoursChange(newSchedule);
+  _fixedBlocks = _fixedBlocks.filter(b => {
+    const day = getDaySchedule(new Date(b.date + 'T00:00:00'), newSchedule);
+    return !!day && b.startMinutes >= day.startMinutes && b.startMinutes + b.durationMinutes <= day.endMinutes;
+  });
 }
 
 export function addFixedBlock(block) {

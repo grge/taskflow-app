@@ -15,9 +15,6 @@
 
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  let localDays = $state(workSchedule.days.map(d => ({ ...d })));
-  let localBuffer = $state(workSchedule.value.bufferMinutes ?? 15);
-
   function minutesToTime(minutes) {
     const h = String(Math.floor(minutes / 60)).padStart(2, '0');
     const m = String(minutes % 60).padStart(2, '0');
@@ -29,9 +26,18 @@
     return h * 60 + (m || 0);
   }
 
-  function save() {
-    updateWorkSchedule({ ...workSchedule.value, days: localDays, bufferMinutes: localBuffer });
-    dismiss();
+  function toggleDay(i, enabled) {
+    const days = workSchedule.days.map((d, idx) => idx === i ? { ...d, enabled } : d);
+    updateWorkSchedule({ ...workSchedule.value, days });
+  }
+
+  function setDayTime(i, field, timeStr) {
+    const days = workSchedule.days.map((d, idx) => idx === i ? { ...d, [field]: timeToMinutes(timeStr) } : d);
+    updateWorkSchedule({ ...workSchedule.value, days });
+  }
+
+  function setBuffer(mins) {
+    updateWorkSchedule({ ...workSchedule.value, bufferMinutes: mins });
   }
 
   function hardReset() {
@@ -73,10 +79,10 @@
       <section>
         <h3 class="section-title">Work Hours</h3>
         <div class="schedule-grid">
-          {#each localDays as day, i}
+          {#each workSchedule.days as day, i}
             <div class="schedule-row" class:disabled={!day.enabled}>
               <label class="day-toggle">
-                <input type="checkbox" bind:checked={localDays[i].enabled} />
+                <input type="checkbox" checked={day.enabled} onchange={(e) => toggleDay(i, e.target.checked)} />
                 <span class="day-name">{DAY_NAMES[day.dayOfWeek]}</span>
               </label>
               {#if day.enabled}
@@ -84,13 +90,13 @@
                   <input
                     type="time"
                     value={minutesToTime(day.startMinutes)}
-                    oninput={(e) => { localDays[i].startMinutes = timeToMinutes(e.target.value); }}
+                    onchange={(e) => setDayTime(i, 'startMinutes', e.target.value)}
                   />
                   <span class="sep">–</span>
                   <input
                     type="time"
                     value={minutesToTime(day.endMinutes)}
-                    oninput={(e) => { localDays[i].endMinutes = timeToMinutes(e.target.value); }}
+                    onchange={(e) => setDayTime(i, 'endMinutes', e.target.value)}
                   />
                 </div>
               {:else}
@@ -112,8 +118,8 @@
             {#each [0, 5, 10, 15, 30] as mins}
               <button
                 class="seg-btn"
-                class:active={localBuffer === mins}
-                onclick={() => localBuffer = mins}
+                class:active={(workSchedule.value.bufferMinutes ?? 15) === mins}
+                onclick={() => setBuffer(mins)}
               >{mins === 0 ? 'None' : `${mins}m`}</button>
             {/each}
           </div>
@@ -124,10 +130,6 @@
 
     <div class="modal-footer">
       <button class="btn btn-danger-ghost" onclick={hardReset}>Reset all data</button>
-      <div class="footer-actions">
-        <button class="btn" onclick={dismiss}>Cancel</button>
-        <button class="btn btn-primary" onclick={save}>Save</button>
-      </div>
     </div>
 
   </div>
@@ -367,16 +369,10 @@
   .modal-footer {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     padding: 14px 24px;
     border-top: 1px solid var(--color-border);
     background: var(--color-bg);
     border-radius: 0 0 var(--radius) var(--radius);
-  }
-
-  .footer-actions {
-    display: flex;
-    gap: 8px;
   }
 
   .btn-danger-ghost {

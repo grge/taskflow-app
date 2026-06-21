@@ -4,7 +4,7 @@ import { placeBlockOnTask, removeBlocksForTask } from '../lib/scheduling.js';
 import { autoSchedule } from '../lib/scheduler.js';
 import { workSchedule, fixedBlocks } from './schedule.svelte.js';
 import { activeTimer, setActiveTimer } from './ui.svelte.js';
-import { toISODate } from '../lib/calendar.js';
+import { toISODate, getDaySchedule } from '../lib/calendar.js';
 import { SNAP_MINUTES } from '../lib/constants.js';
 
 const _initialState = loadState();
@@ -165,16 +165,35 @@ export function clearSchedule() {
   );
 }
 
-export function unscheduleTasksOnDisabledDays(schedule) {
-  const enabledDays = new Set(
-    schedule.days.filter(d => d.enabled).map(d => d.dayOfWeek)
-  );
+// Called when work hours change. Finds the earliest scheduled block that no
+// longer fits its day (day disabled, or block starts/ends outside the new
+// startMinutes/endMinutes), then unschedules that task and every task with a
+// block at or after that point in time — since the auto-scheduler packs
+// sequentially, anything after is presumptively built on top of a now-invalid
+// placement. Predictable over clever: no partial trims, no re-packing.
+export function revalidateScheduleAfterHoursChange(schedule) {
+  const blockFits = (b) => {
+    const day = getDaySchedule(new Date(b.date + 'T00:00:00'), schedule);
+    return !!day && b.startMinutes >= day.startMinutes && b.startMinutes + b.durationMinutes <= day.endMinutes;
+  };
+
+  let cutoff = null; // { date, startMinutes } — earliest invalid block
+  for (const t of _tasks) {
+    for (const b of t.scheduledBlocks) {
+      if (blockFits(b)) continue;
+      if (!cutoff || b.date < cutoff.date || (b.date === cutoff.date && b.startMinutes < cutoff.startMinutes)) {
+        cutoff = { date: b.date, startMinutes: b.startMinutes };
+      }
+    }
+  }
+  if (!cutoff) return;
+
+  const isAtOrAfterCutoff = (b) =>
+    b.date > cutoff.date || (b.date === cutoff.date && b.startMinutes >= cutoff.startMinutes);
+
   _tasks = _tasks.map(t => {
     if (!t.scheduledBlocks.length) return t;
-    const hasDisabledBlock = t.scheduledBlocks.some(b => {
-      const dow = new Date(b.date + 'T00:00:00').getDay();
-      return !enabledDays.has(dow);
-    });
-    return hasDisabledBlock ? removeBlocksForTask(t) : t;
+    const affected = t.scheduledBlocks.some(isAtOrAfterCutoff);
+    return affected ? removeBlocksForTask(t) : t;
   });
 }
