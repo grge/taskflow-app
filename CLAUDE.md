@@ -14,13 +14,13 @@ No lint or test scripts are configured. Playwright is installed but has no activ
 
 ## Architecture
 
-TaskFlow is a Svelte 5 SPA (no SvelteKit) that schedules tasks by minimizing accumulated "problemness" — a time-dependent urgency function per task. All state lives in localStorage (`taskflow_v1`); there is no backend.
+TaskFlow is a Svelte 5 SPA (no SvelteKit) that schedules tasks by minimizing accumulated "pressure" — a time-dependent urgency function per task that rises from an `onset` date toward a `peak` date/value. All state lives in localStorage (`taskflow_v2`); there is no backend.
 
 ### Layer overview
 
-- **`src/lib/`** — pure logic: `envelope.js` (problemness math), `scheduler.js` (auto-scheduler), `scheduling.js` (block placement), `calendar.js` (work-day navigation), `dnd.js` (drag-and-drop Svelte actions), `persistence.js` (localStorage load/save/migration)
-- **`src/stores/`** — Svelte 5 rune-based state (`tasks.svelte.js`, `schedule.svelte.js`, `ui.svelte.js`, `clock.svelte.js`, `estimation.svelte.js`)
-- **`src/lib/components/`** — UI: `App.svelte` is the root shell; `WeekMatrix.svelte` is the 7-day drag-and-drop grid; `TaskList.svelte`/`TaskRow.svelte` is the task panel with live problemness; modals for add, settings, insights
+- **`src/lib/`** — pure logic: `envelope.js` (pressure math: `pAt`, `accumulatedPressure`, `getPressureTier`, `pToColor`), `scheduler.js` (auto-scheduler: greedy + local search), `outlook-scheduler.js` (reorder/bump-forward packing for the Outlook backlog), `scheduling.js` (block placement, multi-day splitting), `calendar.js` (work-day navigation, date formatting), `dnd.js` (drag-and-drop Svelte actions), `persistence.js` (localStorage load/save/migration), `tasks.js` (task factory), `constants.js` (storage key, pressure scale/color stops, default work schedule)
+- **`src/stores/`** — Svelte 5 rune-based state: `tasks.svelte.js`, `schedule.svelte.js` (work hours + fixed blocks), `ui.svelte.js` (active tab/modal), `clock.svelte.js` (ticking now/today), `estimation.svelte.js` (learned duration multiplier), `theme.svelte.js` (selected color theme)
+- **`src/lib/components/`** — UI: `App.svelte` is the root shell with Plan/Insights/Settings tabs; `TodayPlanner.svelte` is today's vertical timeline; `OutlookSection.svelte` is the future-day backlog with drag-to-reorder; `TaskList.svelte`/`TaskRow.svelte` is the task panel with `PressureSparkline.svelte`; `EnvelopeEditor.svelte` is the drag-to-edit onset/peak chart; `AddTaskModal.svelte`/`AddBlockModal.svelte`/`SettingsModal.svelte`/`InsightsModal.svelte`; `TimerBar.svelte` for active time tracking
 
 ### Key conventions
 
@@ -30,18 +30,14 @@ TaskFlow is a Svelte 5 SPA (no SvelteKit) that schedules tasks by minimizing acc
 
 **Multi-day block splitting:** Tasks can span multiple days; blocks carry `partIndex`/`totalParts`. Grab-offset logic differs: single blocks use pixel offset (`grabOffsetPx`), split blocks use time offset (`grabOffsetMinutes`) with `retreatWork()`.
 
-**Auto-scheduler:** Greedy packing first, then binary-search local optimization. Uses `estimationMultiplier` (median of elapsed/estimated ratios from completed tasks, prior 1.2× until 5 observations) to scale durations before packing.
+**Auto-scheduler:** Greedy packing first, then binary-search local optimization. Uses `estimationMultiplier` (median of elapsed/estimated ratios from completed tasks, prior 1.2× until 5 observations) to scale durations before packing. The Outlook backlog uses a separate, simpler sequential-packing scheduler (`outlook-scheduler.js`) for reorder/bump-forward, spilling overflow to subsequent work days.
 
 **Timer:** Single `activeTimer` state: `{ taskId, startedAt, baseSeconds }`. `startedAt` is `null` when paused. Display = `baseSeconds + (now - startedAt)`. Written to `task.elapsedSeconds` on pause/stop.
 
-**Problemness model:** Piecewise-linear function with grace, rise window, and plateau. Six presets (e.g. "COB Today", "Few Days"). Deadline-anchored presets compute `riseHours` at creation time and store it as a concrete number. Color is a 6-stop gradient from green → dark red.
+**Pressure model:** Each task has `onset`, `peak` (Dates) and `peakPressure` (0–1). `pAt()` rises via a smoothstep curve from 0 at onset to `peakPressure` at peak, then holds flat. Five tiers (Low/Building/Elevated/High/Critical) and a matching 6-stop color gradient (green → dark red) are defined in `constants.js` (`PRESSURE_SCALE`, `ENVELOPE_COLOR_STOPS`). `EnvelopeEditor.svelte` lets onset/peak/peakPressure be dragged directly on a 7-day chart — there are no presets.
 
-**Task list order:** Insertion order is preserved (sorted-by-problemness was reverted — it was disorienting in practice).
+**Task list order:** Insertion order is preserved (sorted-by-pressure was reverted — it was disorienting in practice).
+
+**Theming:** `theme.svelte.js` stores the selected theme name (`warm-parchment` default, plus `sage-morning`, `ember-night`, `dusk`) in localStorage under `taskflow_theme` and sets `data-theme` on `<html>`; `themes.css` defines the CSS variables per theme. Selected from `SettingsModal.svelte`.
 
 **Persistence:** Soft deletes (`isDeleted: true`). Completing a task clears its `scheduledBlocks`. Disabling a work day unschedules blocks on that day. Load includes date field revival and migration from old `timeSessions` format.
-
-### Reference docs
-
-- `SPEC-v3.md` — full technical specification (task model, envelopes, scheduler algorithm, data model)
-- `IMPLEMENTATION.md` — deviations from spec and key implementation decisions
-- `SCHEDULER-BENCHMARKS.md` — greedy+local-search vs. DP solver benchmarks
