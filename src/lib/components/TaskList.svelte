@@ -1,6 +1,5 @@
 <script>
   import { activeTasks, completedTasks, restoreTask } from '../../stores/tasks.svelte.js';
-  import { estimationMultiplier } from '../../stores/estimation.svelte.js';
   import { openModal } from '../../stores/ui.svelte.js';
   import { pAt, getPressureTier } from '../envelope.js';
   import { clock } from '../../stores/clock.svelte.js';

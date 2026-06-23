@@ -145,8 +145,8 @@ export function finishTimer(taskId) {
 
 // ─── schedule mutations ───────────────────────────────────────────────────────
 
-export function autoScheduleAll(estimationMultiplier = 1.2) {
-  const blocks = autoSchedule(_tasks, workSchedule.value, fixedBlocks.value, estimationMultiplier);
+export function autoScheduleAll() {
+  const blocks = autoSchedule(_tasks, workSchedule.value, fixedBlocks.value);
   if (!blocks.length) return;
   const blocksByTask = new Map();
   for (const block of blocks) {

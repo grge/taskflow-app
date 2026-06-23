@@ -103,7 +103,7 @@
         <span class="stat-value multiplier" class:active={n >= 5}>
           {n >= 5 ? multiplier.toFixed(2) + '×' : '1.20× (prior)'}
         </span>
-        <span class="stat-label">scheduler multiplier</span>
+        <span class="stat-label">multiplier</span>
       </div>
     </div>
 

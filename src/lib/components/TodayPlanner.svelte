@@ -1,7 +1,6 @@
 <script>
   import { tasks, autoScheduleAll, clearSchedule, unscheduleTask, editTask } from '../../stores/tasks.svelte.js';
   import { workSchedule, fixedBlocks, getFixedBlocksForDate, editFixedBlock, removeFixedBlock } from '../../stores/schedule.svelte.js';
-  import { estimationMultiplier } from '../../stores/estimation.svelte.js';
   import { openModal, previewBlock, plannerDate, advancePlannerDay, retreatPlannerDay, resetPlannerToToday, dragState } from '../../stores/ui.svelte.js';
   import { clock } from '../../stores/clock.svelte.js';
   import { getDaySchedule, toISODate, minutesToTimeString, formatDateLabel } from '../calendar.js';
@@ -161,7 +160,7 @@
       <span class="planner-date">{dateShort}</span>
     </div>
     <div class="planner-actions">
-      <button class="btn btn-primary btn-sm" onclick={() => autoScheduleAll(estimationMultiplier.value)}>✦ Auto-schedule</button>
+      <button class="btn btn-primary btn-sm" onclick={() => autoScheduleAll()}>✦ Auto-schedule</button>
       <button class="btn btn-ghost btn-sm" onclick={clearSchedule}>Clear</button>
       <button class="btn btn-ghost btn-sm" onclick={() => openModal('add-block')}>+ Block</button>
     </div>
