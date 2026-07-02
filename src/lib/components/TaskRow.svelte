@@ -1,11 +1,12 @@
 <script>
-  import { editTask, deleteTask, completeTask, unscheduleTask, startTimer, pauseTimer, resumeTimer, finishTimer, liveSeconds } from '../../stores/tasks.svelte.js';
+  import { editTask, deleteTask, completeTask, unscheduleTask, toggleLock, startTimer, pauseTimer, resumeTimer, finishTimer, liveSeconds } from '../../stores/tasks.svelte.js';
   import { setExpandedTask, expandedTaskId, activeTimer, berthGhost, dragState } from '../../stores/ui.svelte.js';
   import { draggableTask } from '../dnd.js';
   import { minutesToTimeString, toISODate } from '../calendar.js';
   import { clock } from '../../stores/clock.svelte.js';
   import { pAt, pToColor, getPressureTier } from '../envelope.js';
   import EnvelopeEditor from './EnvelopeEditor.svelte';
+  import LockIcon from './LockIcon.svelte';
 
   let { task } = $props();
 
@@ -14,6 +15,7 @@
   let isTimerRunning  = $derived(activeTimer.value?.taskId === task.id);
   let isTimerPaused   = $derived(isTimerRunning && !activeTimer.value?.startedAt);
   let isScheduled     = $derived(task.scheduledBlocks.length > 0);
+  let isLocked        = $derived(task.isLocked);
   let isExpanded      = $derived(expandedTaskId.value === task.id);
   let isPastScheduled = $derived(task.scheduledBlocks.some(b => b.date < clock.today));
   let isBerthGhosting = $derived(isScheduled && berthGhost.value === task.id);
@@ -196,12 +198,21 @@
         </div>
       {:else if !isScheduled}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="task-chip" class:is-dragging={isChipDragging} style="--spine:{pillColor}" title="Drag to schedule"
+        <div class="task-chip" class:is-dragging={isChipDragging} class:is-locked={isLocked} style="--spine:{pillColor}" title="Drag to schedule"
           use:draggableTask={{ taskId: task.id }}
           onclick={(e) => e.stopPropagation()}>
           <div class="chip-accent"></div>
           <span class="chip-handle">⠿</span>
           <span class="chip-duration">{formatDuration(task.estimatedMinutes)}</span>
+          <button
+            class="chip-lock"
+            class:is-locked={isLocked}
+            title={isLocked
+              ? 'Locked — auto-scheduler will skip this task'
+              : 'Lock to keep the auto-scheduler from scheduling this task'}
+            onmousedown={(e) => e.stopPropagation()}
+            onclick={(e) => { e.stopPropagation(); toggleLock(task.id); }}
+          ><LockIcon locked={isLocked} size={14} /></button>
         </div>
       {:else}
         <span class="berth-schedule" title="Scheduled">◷ {scheduledBadge}</span>
@@ -564,6 +575,36 @@
     font-weight: 600;
     color: var(--color-text);
     white-space: nowrap;
+  }
+
+  /* Lock toggle on the chip: hidden until hover, but always shown when locked */
+  .chip-lock {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--color-text-faint);
+    cursor: pointer;
+    overflow: hidden;
+    opacity: 0;
+    transition: width 0.12s, opacity 0.12s, color 0.1s;
+  }
+
+  .task-chip:hover .chip-lock,
+  .chip-lock.is-locked {
+    width: 22px;
+    opacity: 1;
+  }
+
+  .chip-lock:hover { color: var(--color-text-muted); }
+  .chip-lock.is-locked { color: var(--color-accent); }
+
+  .task-chip.is-locked {
+    border-color: var(--color-border);
   }
 
   /* ── Timer footer ── */

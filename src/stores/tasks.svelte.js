@@ -83,6 +83,10 @@ export function completeTask(taskId) {
   );
 }
 
+export function toggleLock(taskId) {
+  _tasks = _tasks.map(t => t.id === taskId ? { ...t, isLocked: !t.isLocked } : t);
+}
+
 export function restoreTask(taskId) {
   _tasks = _tasks.map(t =>
     t.id === taskId ? { ...t, isCompleted: false, completedAt: null } : t
@@ -161,7 +165,7 @@ export function autoScheduleAll() {
 
 export function clearSchedule() {
   _tasks = _tasks.map(t =>
-    t.scheduledBlocks.length ? removeBlocksForTask(t) : t
+    t.scheduledBlocks.length && !t.isLocked ? removeBlocksForTask(t) : t
   );
 }
 

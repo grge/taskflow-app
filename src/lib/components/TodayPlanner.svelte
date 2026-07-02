@@ -1,5 +1,5 @@
 <script>
-  import { tasks, autoScheduleAll, clearSchedule, unscheduleTask, editTask } from '../../stores/tasks.svelte.js';
+  import { tasks, autoScheduleAll, clearSchedule, unscheduleTask, toggleLock, editTask } from '../../stores/tasks.svelte.js';
   import { workSchedule, fixedBlocks, getFixedBlocksForDate, editFixedBlock, removeFixedBlock } from '../../stores/schedule.svelte.js';
   import { openModal, previewBlock, plannerDate, advancePlannerDay, retreatPlannerDay, resetPlannerToToday, dragState } from '../../stores/ui.svelte.js';
   import { clock } from '../../stores/clock.svelte.js';
@@ -7,6 +7,7 @@
   import { draggableBlockVertical, draggableFixedBlock } from '../dnd.js';
   import { pAt, pToColor } from '../envelope.js';
   import { layoutOverlapsOnDay } from '../scheduling.js';
+  import LockIcon from './LockIcon.svelte';
 
   let todayStr    = $derived(clock.today);
   let viewDateStr = $derived(plannerDate.value);
@@ -233,6 +234,7 @@
           <div
             class="task-block"
             class:is-dragging={dragState.value?.taskId === task.id}
+            class:is-locked={task.isLocked}
             style="top:{toPct(block.startMinutes)}%; height:{heightPct(block.durationMinutes)}%; {overlapStyle('task', task.id)}"
             use:draggableBlockVertical={{ taskId: task.id, block }}
           >
@@ -259,6 +261,15 @@
                 <div class="block-time">{minutesToTimeString(block.startMinutes)} · {block.durationMinutes >= 60 ? `${(block.durationMinutes/60).toFixed(block.durationMinutes % 60 === 0 ? 0 : 1)}h` : `${block.durationMinutes}m`}</div>
               {/if}
             </div>
+            <button
+              class="block-lock"
+              class:is-locked={task.isLocked}
+              title={task.isLocked
+                ? 'Locked — Clear will keep this block'
+                : 'Lock to keep this block when clearing the schedule'}
+              onmousedown={(e) => e.stopPropagation()}
+              onclick={(e) => { e.stopPropagation(); toggleLock(task.id); }}
+            ><LockIcon locked={task.isLocked} size={14} /></button>
             <button class="unschedule-x" onclick={(e) => { e.stopPropagation(); unscheduleTask(task.id); }} title="Unschedule">×</button>
           </div>
         {/each}
@@ -551,7 +562,7 @@
   .block-content {
     flex: 1;
     min-width: 0;
-    padding: 3px 20px 3px 6px; /* right padding reserves space for the × button */
+    padding: 3px 42px 3px 6px; /* right padding reserves space for the lock + × buttons */
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -593,11 +604,11 @@
 
   .unschedule-x {
     position: absolute;
-    top: 2px;
+    top: 1px;
     right: 3px;
     background: none;
     border: none;
-    font-size: 13px;
+    font-size: 16px;
     line-height: 1;
     color: var(--color-text-muted);
     cursor: pointer;
@@ -609,6 +620,32 @@
 
   .task-block:hover .unschedule-x { opacity: 1; }
   .unschedule-x:hover { color: #EF5350; }
+
+  /* Lock toggle on scheduled blocks: sits left of the × */
+  .block-lock {
+    position: absolute;
+    top: 3px;
+    right: 22px;
+    display: flex;
+    background: none;
+    border: none;
+    color: var(--color-text-faint);
+    cursor: pointer;
+    padding: 0 2px;
+    opacity: 0;
+    transition: opacity 0.1s, color 0.1s;
+    z-index: 1;
+  }
+
+  .task-block:hover .block-lock,
+  .block-lock.is-locked { opacity: 1; }
+
+  .block-lock:hover { color: var(--color-text-muted); }
+  .block-lock.is-locked { color: var(--color-accent); }
+
+  .task-block.is-locked {
+    border-color: var(--color-border);
+  }
 
   /* ── Preview block ── */
   .preview-block {

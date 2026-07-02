@@ -1,11 +1,12 @@
 <script>
-  import { tasks, unscheduleTask, editTask } from '../../stores/tasks.svelte.js';
+  import { tasks, unscheduleTask, toggleLock, editTask } from '../../stores/tasks.svelte.js';
   import { workSchedule } from '../../stores/schedule.svelte.js';
   import { outlookPreview, dragState, plannerDate } from '../../stores/ui.svelte.js';
   import { clock } from '../../stores/clock.svelte.js';
   import { pAt, pToColor } from '../envelope.js';
   import { getVisibleWorkDays, toISODate, formatDateLabel } from '../calendar.js';
   import { draggableOutlookCard } from '../dnd.js';
+  import LockIcon from './LockIcon.svelte';
 
   // All work days after the currently-viewed planner day, up to one day past the last scheduled task
   let outlookDays = $derived((() => {
@@ -112,6 +113,7 @@
             <div
               class="outlook-card"
               class:is-dragging={dragState.value?.taskId === task.id}
+              class:is-locked={task.isLocked}
               data-outlook-task-id={task.id}
               use:draggableOutlookCard={{ taskId: task.id, dateStr: day.dateStr }}
             >
@@ -137,6 +139,15 @@
                 {/if}
                 <span class="card-duration">{formatDuration(block.durationMinutes)}</span>
               </div>
+              <button
+                class="card-lock"
+                class:is-locked={task.isLocked}
+                title={task.isLocked
+                  ? 'Locked — Clear will keep this block'
+                  : 'Lock to keep this block when clearing the schedule'}
+                onmousedown={(e) => e.stopPropagation()}
+                onclick={(e) => { e.stopPropagation(); toggleLock(task.id); }}
+              ><LockIcon locked={task.isLocked} size={15} /></button>
               <button class="card-unschedule" onclick={() => unscheduleTask(task.id)} title="Unschedule">×</button>
             </div>
           {/each}
@@ -327,4 +338,27 @@
 
   .outlook-card:hover .card-unschedule { opacity: 1; }
   .card-unschedule:hover { color: #EF5350; }
+
+  .card-lock {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    background: none;
+    border: none;
+    color: var(--color-text-faint);
+    cursor: pointer;
+    padding: 0 2px;
+    opacity: 0;
+    transition: opacity 0.1s, color 0.1s;
+  }
+
+  .outlook-card:hover .card-lock,
+  .card-lock.is-locked { opacity: 1; }
+
+  .card-lock:hover { color: var(--color-text-muted); }
+  .card-lock.is-locked { color: var(--color-accent); }
+
+  .outlook-card.is-locked {
+    border-color: var(--color-border);
+  }
 </style>

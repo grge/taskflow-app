@@ -38,6 +38,8 @@ TaskFlow is a Svelte 5 SPA (no SvelteKit) that schedules tasks by minimizing acc
 
 **Task list order:** Insertion order is preserved (sorted-by-pressure was reverted — it was disorienting in practice).
 
+**Lock (`isLocked`):** A per-task padlock (`toggleLock` in `tasks.svelte.js`) protecting a task from bulk/automatic scheduling ops only. Locked + unscheduled → excluded from `autoSchedule`'s candidate pool (parked/blocked). Locked + scheduled → skipped by `clearSchedule` (kept while the rest clears, so you can reschedule around it — locked-scheduled tasks already flow into `manualBlocks`, so packing around them is automatic). The lock never blocks manual drag/delete/edit/complete. The toggle lives on the card in every state: the draggable chip in `TaskRow`, the timeline block in `TodayPlanner`, and the backlog card in `OutlookSection` — each hover-reveals when unlocked, stays visible when locked, and stops `mousedown` propagation so the drag action doesn't swallow the click. No persistence migration: old tasks lack the field and read falsy (unlocked).
+
 **Theming:** `theme.svelte.js` stores the selected theme name (`warm-parchment` default, plus `sage-morning`, `ember-night`, `dusk`) in localStorage under `taskflow_theme` and sets `data-theme` on `<html>`; `themes.css` defines the CSS variables per theme. Selected from `SettingsModal.svelte`.
 
 **Persistence:** Soft deletes (`isDeleted: true`). Completing a task clears its `scheduledBlocks`. Disabling a work day unschedules blocks on that day. Load includes date field revival and migration from old `timeSessions` format.

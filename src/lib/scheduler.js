@@ -145,7 +145,7 @@ export function autoSchedule(allTasks, schedule, fixedBlocks = []) {
     .flatMap(t => t.scheduledBlocks);
 
   const unscheduled = allTasks
-    .filter(t => !t.isCompleted && !t.isDeleted && t.scheduledBlocks.length === 0);
+    .filter(t => !t.isCompleted && !t.isDeleted && !t.isLocked && t.scheduledBlocks.length === 0);
 
   if (!unscheduled.length) {
     console.log('[autoSchedule] nothing to schedule');

@@ -13,7 +13,8 @@ export function createTask(description, onset, peak, peakPressure, estimatedMinu
     scheduledBlocks: [],
     elapsedSeconds:  0,
     isCompleted:     false,
-    isDeleted:       false
+    isDeleted:       false,
+    isLocked:        false
   };
 }
 
