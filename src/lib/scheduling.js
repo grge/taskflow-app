@@ -1,5 +1,4 @@
 import { toISODate, getDaySchedule } from './calendar.js';
-import { SNAP_MINUTES } from './constants.js';
 
 export function createScheduledBlock(taskId, date, startMinutes, durationMinutes, opts = {}) {
   return {
@@ -67,24 +66,6 @@ export function splitTaskAcrossDays(taskId, dropDate, startMinutes, durationMinu
   return blocks;
 }
 
-/**
- * Find the latest drop position (dropDate, startMinutes) within visibleDays such that
- * the task fits. Returns { date, startMinutes } or null if it can't fit anywhere.
- */
-export function latestValidDropPosition(durationMinutes, visibleDays) {
-  // Walk backwards from the last day to find the latest start that still fits.
-  for (let i = visibleDays.length - 1; i >= 0; i--) {
-    // Try each 15-min slot from end-of-day backwards on day i.
-    const { date, daySchedule } = visibleDays[i];
-    const dateStr = toISODate(date);
-    for (let start = daySchedule.endMinutes - SNAP_MINUTES; start >= daySchedule.startMinutes; start -= SNAP_MINUTES) {
-      const blocks = splitTaskAcrossDays(null, dateStr, start, durationMinutes, visibleDays);
-      if (blocks !== null) return { date: dateStr, startMinutes: start };
-    }
-  }
-  return null; // task doesn't fit anywhere in the window
-}
-
 export function placeBlockOnTask(task, blocks) {
   const arr = Array.isArray(blocks) ? blocks : [blocks];
   return { ...task, scheduledBlocks: arr, lastModifiedAt: new Date() };
@@ -132,11 +113,4 @@ export function layoutOverlapsOnDay(items, dateStr) {
   closeCluster();
 
   return result;
-}
-
-export function blockCoversTime(block, time) {
-  const blockDate = toISODate(time);
-  if (block.date !== blockDate) return false;
-  const timeMinutes = time.getHours() * 60 + time.getMinutes();
-  return timeMinutes >= block.startMinutes && timeMinutes < block.startMinutes + block.durationMinutes;
 }

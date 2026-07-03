@@ -4,34 +4,6 @@ export function getDaySchedule(date, schedule) {
   return day?.enabled ? day : null;
 }
 
-export function advanceToWorkTime(cursor, schedule) {
-  const result = new Date(cursor);
-  let iterations = 0;
-
-  while (iterations++ < 14) {
-    const day = getDaySchedule(result, schedule);
-    if (!day) {
-      result.setDate(result.getDate() + 1);
-      result.setHours(0, 0, 0, 0);
-      continue;
-    }
-
-    const minutes = result.getHours() * 60 + result.getMinutes();
-    if (minutes < day.startMinutes) {
-      result.setHours(0, day.startMinutes, 0, 0);
-      return result;
-    }
-    if (minutes >= day.endMinutes) {
-      result.setDate(result.getDate() + 1);
-      result.setHours(0, 0, 0, 0);
-      continue;
-    }
-    return result;
-  }
-
-  return result;
-}
-
 export function advanceWork(startTime, durationMinutes, schedule) {
   const currentTime = new Date(startTime);
   let remainingMinutes = durationMinutes;
@@ -66,21 +38,6 @@ export function advanceWork(startTime, durationMinutes, schedule) {
   }
 
   return currentTime;
-}
-
-export function nextWorkDayStart(from, schedule) {
-  const next = new Date(from);
-  next.setDate(next.getDate() + 1);
-  next.setHours(0, 0, 0, 0);
-
-  let safety = 0;
-  while (!getDaySchedule(next, schedule) && safety++ < 14) {
-    next.setDate(next.getDate() + 1);
-  }
-
-  const day = getDaySchedule(next, schedule);
-  next.setHours(0, day.startMinutes, 0, 0);
-  return next;
 }
 
 export function getVisibleWorkDays(schedule, nDays = 7, fromDate = null) {

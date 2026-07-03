@@ -1,6 +1,6 @@
 import { accumulatedPressure } from './envelope.js';
 import { advanceWork, getVisibleWorkDays, toISODate } from './calendar.js';
-import { splitTaskAcrossDays, blockCoversTime } from './scheduling.js';
+import { splitTaskAcrossDays } from './scheduling.js';
 import { schedulableMinutes } from './tasks.js';
 
 // ─── free interval computation ───────────────────────────────────────────────

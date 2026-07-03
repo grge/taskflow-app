@@ -62,23 +62,6 @@ export function getEnvelopeVertices(task, viewStartMs, viewEndMs) {
   return pts;
 }
 
-// Returns 30-point Hermite S-curve samples from onset to peak, plus a plateau point.
-// Used only for smooth rendering in the EnvelopeEditor — scheduler uses piecewise-linear.
-export function hermiteSamples(task, n = 30) {
-  const onsetMs = task.onset.getTime();
-  const peakMs  = task.peak.getTime();
-  const P       = task.peakPressure;
-  const pts     = [];
-
-  for (let i = 0; i <= n; i++) {
-    const t = i / n;
-    const h01 = -2 * t * t * t + 3 * t * t; // Hermite basis, horizontal tangents both ends
-    pts.push({ ms: onsetMs + t * (peakMs - onsetMs), p: h01 * P });
-  }
-
-  return pts;
-}
-
 export function pToColor(p) {
   const stops   = ENVELOPE_COLOR_STOPS;
   const clamped = Math.max(0, Math.min(1, p));

@@ -4,7 +4,7 @@ import { placeBlockOnTask, removeBlocksForTask } from '../lib/scheduling.js';
 import { autoSchedule } from '../lib/scheduler.js';
 import { workSchedule, fixedBlocks } from './schedule.svelte.js';
 import { activeTimer, setActiveTimer } from './ui.svelte.js';
-import { toISODate, getDaySchedule } from '../lib/calendar.js';
+import { getDaySchedule } from '../lib/calendar.js';
 import { SNAP_MINUTES } from '../lib/constants.js';
 
 const _initialState = loadState();
@@ -27,17 +27,6 @@ export const activeTasks = {
 export const completedTasks = {
   get value() {
     return _tasks.filter(t => t.isCompleted && !t.isDeleted);
-  }
-};
-
-// Tasks that have scheduled blocks dated before today — shown with a visual flag.
-export const pastScheduledTasks = {
-  get value() {
-    const todayStr = toISODate(new Date());
-    return _tasks.filter(t =>
-      !t.isCompleted && !t.isDeleted &&
-      t.scheduledBlocks.some(b => b.date < todayStr)
-    );
   }
 };
 

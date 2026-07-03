@@ -1,7 +1,7 @@
 import interact from 'interactjs';
 import { setDragState, setPreviewBlock, setOutlookPreview, setBerthGhost } from '../stores/ui.svelte.js';
 import { scheduleTask, unscheduleTask, tasks, withLiveElapsed } from '../stores/tasks.svelte.js';
-import { splitTaskAcrossDays, latestValidDropPosition } from './scheduling.js';
+import { splitTaskAcrossDays } from './scheduling.js';
 import { schedulableMinutes } from './tasks.js';
 import { getVisibleWorkDays, retreatWork, toISODate, getDaySchedule } from './calendar.js';
 import { workSchedule, fixedBlocks, editFixedBlock } from '../stores/schedule.svelte.js';
@@ -100,29 +100,6 @@ function computeBlocksForCell(task, cell, grabOffsetMinutes) {
 }
 
 // ─── outlook drop logic ──────────────────────────────────────────────────────
-
-// Compute { insertBeforeTaskId, isNoOp } for a drag over an outlook card.
-// entriesForDay: current [{ task, block }] for that day.
-// pos: 'before' | 'after' relative to targetCardTaskId.
-// sourceTaskId: task being dragged (null if from outside outlook).
-// sourceDateStr: day it came from (null if from outside outlook).
-function outlookInsertionPoint(entriesForDay, targetCardTaskId, pos, sourceTaskId, sourceDateStr, targetDateStr) {
-  const targetIdx = entriesForDay.findIndex(en => en.task.id === targetCardTaskId);
-
-  const insertBeforeTaskId = pos === 'before'
-    ? (entriesForDay[targetIdx]?.task.id ?? null)
-    : (entriesForDay[targetIdx + 1]?.task.id ?? null);
-
-  // No-op suppression: only relevant for same-day reorders
-  if (sourceTaskId && sourceDateStr === targetDateStr) {
-    const myIdx  = entriesForDay.findIndex(en => en.task.id === sourceTaskId);
-    const afterMe = entriesForDay[myIdx + 1]?.task.id ?? null;
-    const isNoOp = insertBeforeTaskId === sourceTaskId || insertBeforeTaskId === afterMe;
-    return { insertBeforeTaskId, isNoOp };
-  }
-
-  return { insertBeforeTaskId, isNoOp: false };
-}
 
 // Commit a drop onto an outlook day. Handles both cross-day moves and
 // drops from outside the outlook (sourceTaskId from task list / today planner).

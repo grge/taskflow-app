@@ -21,3 +21,8 @@ build/
 
 # Local data (user's tasks, don't commit)
 localstorage-backup.json
+
+# Design-tool mockup exports / scratch scripts (not build inputs)
+TaskFlow.html
+TaskFlow Themes.dc.html
+screenshot-mockups.mjs
