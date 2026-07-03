@@ -1,5 +1,9 @@
 export const STORAGE_KEY = 'taskflow_v2';
 export const SNAP_MINUTES = 15;
+// Smallest block the scheduler will place. Remaining time is shown to the user
+// clamped at 0 ("0m left"), but a task with near-zero remaining still needs a
+// non-degenerate block — avoids zero-height cards and divide-by-zero in scoring.
+export const MIN_BLOCK_MINUTES = 5;
 
 export const PRESSURE_SCALE = [
   { min: 0.00, max: 0.20, level: 1, label: 'Low',      emoji: '😌', color: '#4CAF50' },

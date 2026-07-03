@@ -1,5 +1,6 @@
 import { getDaySchedule, getVisibleWorkDays, toISODate } from './calendar.js';
 import { splitTaskAcrossDays } from './scheduling.js';
+import { schedulableMinutes } from './tasks.js';
 
 // Advance cursor past any fixed blocks that conflict with [cursor, cursor+duration).
 // Returns the first valid start, or null if the task won't fit before dayEnd.
@@ -47,7 +48,8 @@ export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, sched
   let cursor = daySchedule.startMinutes;
 
   for (const task of reordered) {
-    const start = advancePastFixedBlocks(cursor, task.estimatedMinutes, dayFixedBlocks, daySchedule);
+    const rem = schedulableMinutes(task);
+    const start = advancePastFixedBlocks(cursor, rem, dayFixedBlocks, daySchedule);
 
     if (start !== null) {
       // Fits on the target day
@@ -56,9 +58,9 @@ export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, sched
         taskId:          task.id,
         date,
         startMinutes:    start,
-        durationMinutes: task.estimatedMinutes
+        durationMinutes: rem
       });
-      cursor = start + task.estimatedMinutes + bufferMinutes;
+      cursor = start + rem + bufferMinutes;
     } else {
       // Overflows — spill to the next available work day after the target date
       const futureDays = visibleDays.filter(d => toISODate(d.date) > date);
@@ -69,7 +71,7 @@ export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, sched
         if (!spillSchedule) continue;
         const spillFixed = (fixedBlocks || []).filter(b => b.date === spillDateStr);
         const spillStart = advancePastFixedBlocks(
-          spillSchedule.startMinutes, task.estimatedMinutes, spillFixed, spillSchedule
+          spillSchedule.startMinutes, rem, spillFixed, spillSchedule
         );
         if (spillStart !== null) {
           blocks.set(task.id, {
@@ -77,7 +79,7 @@ export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, sched
             taskId:          task.id,
             date:            spillDateStr,
             startMinutes:    spillStart,
-            durationMinutes: task.estimatedMinutes
+            durationMinutes: rem
           });
           placed = true;
           break;

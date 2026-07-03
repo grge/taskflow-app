@@ -1,5 +1,5 @@
 import { loadState, saveState } from '../lib/persistence.js';
-import { createTask, updateTask } from '../lib/tasks.js';
+import { createTask, updateTask, remainingMinutes as remainingOf } from '../lib/tasks.js';
 import { placeBlockOnTask, removeBlocksForTask } from '../lib/scheduling.js';
 import { autoSchedule } from '../lib/scheduler.js';
 import { workSchedule, fixedBlocks } from './schedule.svelte.js';
@@ -53,20 +53,27 @@ export function addTask(description, onset, peak, peakPressure, estimatedMinutes
   return task;
 }
 
+// Rescale a task's scheduled blocks so their durations sum to newTotal,
+// preserving each block's share of oldTotal. Last block absorbs rounding drift.
+function rescaleBlocks(blocks, oldTotal, newTotal) {
+  return blocks.map((b, i, arr) => {
+    const share = i < arr.length - 1
+      ? Math.round(newTotal * (b.durationMinutes / oldTotal) / SNAP_MINUTES) * SNAP_MINUTES
+      : newTotal - arr.slice(0, i).reduce((s, prev) => s + Math.round(newTotal * (prev.durationMinutes / oldTotal) / SNAP_MINUTES) * SNAP_MINUTES, 0);
+    return { ...b, durationMinutes: Math.max(SNAP_MINUTES, share) };
+  });
+}
+
 export function editTask(taskId, patch) {
   _tasks = _tasks.map(t => {
     if (t.id !== taskId) return t;
     const updated = updateTask(t, patch);
-    // Keep scheduled block durations in sync when estimatedMinutes changes
-    if ('estimatedMinutes' in patch && updated.scheduledBlocks.length > 0) {
-      const newTotal = patch.estimatedMinutes;
-      updated.scheduledBlocks = updated.scheduledBlocks.map((b, i, arr) => {
-        // Last block gets remainder to avoid rounding drift
-        const share = i < arr.length - 1
-          ? Math.round(newTotal * (b.durationMinutes / t.estimatedMinutes) / SNAP_MINUTES) * SNAP_MINUTES
-          : newTotal - arr.slice(0, i).reduce((s, prev) => s + Math.round(newTotal * (prev.durationMinutes / t.estimatedMinutes) / SNAP_MINUTES) * SNAP_MINUTES, 0);
-        return { ...b, durationMinutes: Math.max(SNAP_MINUTES, share) };
-      });
+    // Keep scheduled block durations in sync when estimatedMinutes changes —
+    // but only when remaining is still driven by the estimate (no override).
+    // With an override active, remaining is decoupled from the estimate, so
+    // editing the estimate shouldn't move the scheduled block.
+    if ('estimatedMinutes' in patch && updated.scheduledBlocks.length > 0 && t.remainingOverride == null && !t.elapsedSeconds) {
+      updated.scheduledBlocks = rescaleBlocks(updated.scheduledBlocks, t.estimatedMinutes, patch.estimatedMinutes);
     }
     return updated;
   });
@@ -85,6 +92,29 @@ export function completeTask(taskId) {
 
 export function toggleLock(taskId) {
   _tasks = _tasks.map(t => t.id === taskId ? { ...t, isLocked: !t.isLocked } : t);
+}
+
+// Manually set minutes of work left. Plants an anchor at the task's current
+// live elapsed reading, so subsequent timer time counts down from `minutes`.
+// Pass null to clear the override and revert to estimate − elapsed.
+export function setRemaining(taskId, minutes) {
+  _tasks = _tasks.map(t => {
+    if (t.id !== taskId) return t;
+    const oldRemaining = remainingOf(t);
+    const timer = activeTimer.value;
+    const elapsed = timer?.taskId === taskId ? liveSeconds(timer) : (t.elapsedSeconds ?? 0);
+    const override = minutes == null
+      ? null
+      : { atElapsedSeconds: elapsed, remainingMinutes: minutes };
+    const updated = updateTask(t, { remainingOverride: override });
+    // Resize any already-scheduled blocks to match the new remaining, so the
+    // timeline and the "X left" label stay in agreement without a reschedule.
+    if (updated.scheduledBlocks.length > 0) {
+      const newRemaining = remainingOf(updated);
+      updated.scheduledBlocks = rescaleBlocks(updated.scheduledBlocks, oldRemaining, newRemaining);
+    }
+    return updated;
+  });
 }
 
 export function restoreTask(taskId) {
@@ -111,6 +141,21 @@ export function liveSeconds(t) {
   if (!t) return 0;
   if (!t.startedAt) return t.baseSeconds;
   return t.baseSeconds + Math.max(0, Math.floor((Date.now() - new Date(t.startedAt)) / 1000));
+}
+
+// Elapsed seconds for a task including any in-flight (unflushed) timer time.
+// The scheduler must use this so the block it packs matches the "X left" the UI
+// shows — the stored elapsedSeconds lags behind while a timer is running.
+export function liveElapsedFor(task) {
+  const timer = activeTimer.value;
+  return timer?.taskId === task.id ? liveSeconds(timer) : (task.elapsedSeconds ?? 0);
+}
+
+// Return a task with its live timer time folded into elapsedSeconds, so pure
+// scheduling code reading task.elapsedSeconds sees the same value as the UI.
+export function withLiveElapsed(task) {
+  const live = liveElapsedFor(task);
+  return live === task.elapsedSeconds ? task : { ...task, elapsedSeconds: live };
 }
 
 export function startTimer(taskId) {
@@ -150,7 +195,7 @@ export function finishTimer(taskId) {
 // ─── schedule mutations ───────────────────────────────────────────────────────
 
 export function autoScheduleAll() {
-  const blocks = autoSchedule(_tasks, workSchedule.value, fixedBlocks.value);
+  const blocks = autoSchedule(_tasks.map(withLiveElapsed), workSchedule.value, fixedBlocks.value);
   if (!blocks.length) return;
   const blocksByTask = new Map();
   for (const block of blocks) {

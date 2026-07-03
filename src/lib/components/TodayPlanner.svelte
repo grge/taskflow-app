@@ -6,6 +6,7 @@
   import { getDaySchedule, toISODate, minutesToTimeString, formatDateLabel } from '../calendar.js';
   import { draggableBlockVertical, draggableFixedBlock } from '../dnd.js';
   import { pAt, pToColor } from '../envelope.js';
+  import { blockDisplayMinutes } from '../tasks.js';
   import { layoutOverlapsOnDay } from '../scheduling.js';
   import LockIcon from './LockIcon.svelte';
 
@@ -258,7 +259,8 @@
                 >{task.description}</div>
               {/if}
               {#if block.durationMinutes >= 45}
-                <div class="block-time">{minutesToTimeString(block.startMinutes)} · {block.durationMinutes >= 60 ? `${(block.durationMinutes/60).toFixed(block.durationMinutes % 60 === 0 ? 0 : 1)}h` : `${block.durationMinutes}m`}</div>
+                {@const labelMin = blockDisplayMinutes(task, block)}
+                <div class="block-time">{minutesToTimeString(block.startMinutes)} · {labelMin >= 60 ? `${(labelMin/60).toFixed(labelMin % 60 === 0 ? 0 : 1)}h` : `${labelMin}m`}</div>
               {/if}
             </div>
             <button

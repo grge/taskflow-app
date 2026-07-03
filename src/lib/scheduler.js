@@ -1,6 +1,7 @@
 import { accumulatedPressure } from './envelope.js';
 import { advanceWork, getVisibleWorkDays, toISODate } from './calendar.js';
 import { splitTaskAcrossDays, blockCoversTime } from './scheduling.js';
+import { schedulableMinutes } from './tasks.js';
 
 // ─── free interval computation ───────────────────────────────────────────────
 
@@ -80,7 +81,7 @@ export function packSequence(sequence, schedule, manualBlocks = [], fixedBlocks 
     for (let i = 0; i < intervals.length; i++) {
       const iv = intervals[i];
       const blocks = splitTaskAcrossDays(
-        task.id, iv.date, iv.startMinutes, task.estimatedMinutes, visibleDays
+        task.id, iv.date, iv.startMinutes, schedulableMinutes(task), visibleDays
       );
       if (blocks === null) return null; // doesn't fit in window at all
 
@@ -131,10 +132,11 @@ export function totalCost(blocks, tasks) {
 // ─── greedyScore ─────────────────────────────────────────────────────────────
 
 function greedyScore(task, currentWorkTime, schedule) {
-  const completionTime = advanceWork(currentWorkTime, task.estimatedMinutes, schedule);
+  const rem = schedulableMinutes(task);
+  const completionTime = advanceWork(currentWorkTime, rem, schedule);
   const nowCost = accumulatedPressure(task, currentWorkTime);
   const completeCost = accumulatedPressure(task, completionTime);
-  return (completeCost - nowCost) / (task.estimatedMinutes / 60);
+  return (completeCost - nowCost) / (rem / 60);
 }
 
 // ─── autoSchedule ────────────────────────────────────────────────────────────
@@ -171,7 +173,7 @@ export function autoSchedule(allTasks, schedule, fixedBlocks = []) {
 
     sequence.push(bestTask);
     remaining.splice(remaining.indexOf(bestTask), 1);
-    currentTime = advanceWork(currentTime, bestTask.estimatedMinutes, schedule);
+    currentTime = advanceWork(currentTime, schedulableMinutes(bestTask), schedule);
   }
 
   // ── Phase 2: pack and check window capacity ──────────────────────────────────

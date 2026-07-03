@@ -1,7 +1,8 @@
 import interact from 'interactjs';
 import { setDragState, setPreviewBlock, setOutlookPreview, setBerthGhost } from '../stores/ui.svelte.js';
-import { scheduleTask, unscheduleTask, tasks } from '../stores/tasks.svelte.js';
+import { scheduleTask, unscheduleTask, tasks, withLiveElapsed } from '../stores/tasks.svelte.js';
 import { splitTaskAcrossDays, latestValidDropPosition } from './scheduling.js';
+import { schedulableMinutes } from './tasks.js';
 import { getVisibleWorkDays, retreatWork, toISODate, getDaySchedule } from './calendar.js';
 import { workSchedule, fixedBlocks, editFixedBlock } from '../stores/schedule.svelte.js';
 import { reorderAndBumpForward } from './outlook-scheduler.js';
@@ -34,7 +35,10 @@ function outlookCardFromPoint(x, y, dayEl, excludeTaskId) {
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function getTask(taskId) {
-  return tasks.value.find(t => t.id === taskId) ?? null;
+  const t = tasks.value.find(t => t.id === taskId) ?? null;
+  // Fold in live timer time so the previewed/committed block size matches the
+  // "X left" the task card shows while a timer is running.
+  return t ? withLiveElapsed(t) : null;
 }
 
 function startDragCursor() { document.documentElement.classList.add('dragging-active'); }
@@ -82,13 +86,14 @@ function computeBlocksForCell(task, cell, grabOffsetMinutes) {
 
   if (!taskStart) return null;
 
-  let blocks = splitTaskAcrossDays(task.id, taskStart.date, taskStart.startMinutes, task.estimatedMinutes, visibleDays);
+  const rem = schedulableMinutes(task);
+  let blocks = splitTaskAcrossDays(task.id, taskStart.date, taskStart.startMinutes, rem, visibleDays);
   if (blocks === null) {
     // taskStart resolved to before the visible window (grab offset retreated past
     // today's start) — clamp to the earliest available slot, not the latest.
     const first = visibleDays[0];
     if (first && taskStart.date < toISODate(first.date)) {
-      blocks = splitTaskAcrossDays(task.id, toISODate(first.date), first.daySchedule.startMinutes, task.estimatedMinutes, visibleDays);
+      blocks = splitTaskAcrossDays(task.id, toISODate(first.date), first.daySchedule.startMinutes, rem, visibleDays);
     }
   }
   return blocks;
@@ -135,8 +140,10 @@ function commitOutlookDrop(movedTaskId, sourceDateStr, targetDateStr, insertBefo
     unscheduleTask(movedTaskId);
   }
 
-  // Build ordered task list for the target day, including the moved task
-  let orderedTasks = dayEntries.map(e => e.task).filter(t => t.id !== movedTaskId);
+  // Build ordered task list for the target day, including the moved task.
+  // Settle live timer time so a running task on this day packs at its true
+  // remaining, not its last-flushed elapsed.
+  let orderedTasks = dayEntries.map(e => withLiveElapsed(e.task)).filter(t => t.id !== movedTaskId);
   const movedTask = getTask(movedTaskId);
   if (!movedTask) return;
 

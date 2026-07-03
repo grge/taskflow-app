@@ -1,9 +1,10 @@
 <script>
-  import { tasks, unscheduleTask, toggleLock, editTask } from '../../stores/tasks.svelte.js';
+  import { tasks, unscheduleTask, toggleLock, editTask, withLiveElapsed } from '../../stores/tasks.svelte.js';
   import { workSchedule } from '../../stores/schedule.svelte.js';
   import { outlookPreview, dragState, plannerDate } from '../../stores/ui.svelte.js';
   import { clock } from '../../stores/clock.svelte.js';
   import { pAt, pToColor } from '../envelope.js';
+  import { remainingMinutes, blockDisplayMinutes } from '../tasks.js';
   import { getVisibleWorkDays, toISODate, formatDateLabel } from '../calendar.js';
   import { draggableOutlookCard } from '../dnd.js';
   import LockIcon from './LockIcon.svelte';
@@ -87,7 +88,8 @@
   {:else}
     {#each outlookDays as day (day.dateStr)}
       {@const ghost     = outlookPreview.value?.dateStr === day.dateStr ? outlookPreview.value : null}
-      {@const ghostTask = ghost ? tasks.value.find(t => t.id === ghost.ghostTaskId) : null}
+      {@const ghostRaw  = ghost ? tasks.value.find(t => t.id === ghost.ghostTaskId) : null}
+      {@const ghostTask = ghostRaw ? withLiveElapsed(ghostRaw) : null}
       <div class="outlook-day" data-outlook-day={day.dateStr}>
         <div class="day-header">
           <span class="day-label">{day.label}</span>
@@ -103,7 +105,7 @@
                 <div class="card-accent"></div>
                 <div class="card-body">
                   <span class="card-desc">{ghostTask?.description ?? '…'}</span>
-                  {#if ghostTask}<span class="card-duration">{formatDuration(ghostTask.estimatedMinutes)}</span>{/if}
+                  {#if ghostTask}<span class="card-duration">{formatDuration(remainingMinutes(ghostTask))}</span>{/if}
                 </div>
               </div>
             {/if}
@@ -137,7 +139,7 @@
                     ondblclick={(e) => { e.stopPropagation(); startEdit(task); }}
                   >{task.description}</span>
                 {/if}
-                <span class="card-duration">{formatDuration(block.durationMinutes)}</span>
+                <span class="card-duration">{formatDuration(blockDisplayMinutes(task, block))}</span>
               </div>
               <button
                 class="card-lock"
@@ -156,7 +158,7 @@
               <div class="card-accent"></div>
               <div class="card-body">
                 <span class="card-desc">{ghostTask?.description ?? '…'}</span>
-                {#if ghostTask}<span class="card-duration">{formatDuration(ghostTask.estimatedMinutes)}</span>{/if}
+                {#if ghostTask}<span class="card-duration">{formatDuration(remainingMinutes(ghostTask))}</span>{/if}
               </div>
             </div>
           {/if}

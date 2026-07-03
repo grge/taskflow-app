@@ -2,7 +2,9 @@
   import { clock } from '../../stores/clock.svelte.js';
   import { pToColor } from '../envelope.js';
 
-  let { task, onchange } = $props();
+  // showNowBadge: the in-chart "now Low · 0%" readout. Hidden where the caller
+  // surfaces the current pressure elsewhere (e.g. the expanded task panel header).
+  let { task, onchange, showNowBadge = true } = $props();
 
   const DAY_MS = 24 * 60 * 60 * 1000;
   const VIEW_DAYS = 7;
@@ -297,12 +299,14 @@
   </div>
 
   <!-- Now pressure pill -->
-  <div class="chips">
-    <span class="chip chip-now" style="background:{chipBg(nowPressureInfo.color)}">
-      <span class="chip-now-label">now</span>
-      <span class="chip-now-value" style="color:{nowPressureInfo.color}">{nowPressureInfo.label} · {Math.round(nowPressure * 100)}%</span>
-    </span>
-  </div>
+  {#if showNowBadge}
+    <div class="chips">
+      <span class="chip chip-now" style="background:{chipBg(nowPressureInfo.color)}">
+        <span class="chip-now-label">now</span>
+        <span class="chip-now-value" style="color:{nowPressureInfo.color}">{nowPressureInfo.label} · {Math.round(nowPressure * 100)}%</span>
+      </span>
+    </div>
+  {/if}
 </div>
 
 <style>
