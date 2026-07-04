@@ -102,7 +102,7 @@
                 {#if rename.isEditing(task.id)}
                   <!-- svelte-ignore a11y_autofocus -->
                   <input
-                    class="card-desc-input"
+                    class="inline-edit card-desc-input"
                     bind:value={rename.draft}
                     onblur={rename.commit}
                     onkeydown={rename.onKeydown}
@@ -120,7 +120,7 @@
                 <span class="card-duration">{formatDuration(blockDisplayMinutes(task, block))}</span>
               </div>
               <button
-                class="card-lock"
+                class="reveal-btn card-lock"
                 class:is-locked={task.isLocked}
                 title={task.isLocked
                   ? 'Locked — Clear will keep this block'
@@ -128,7 +128,7 @@
                 onmousedown={(e) => e.stopPropagation()}
                 onclick={(e) => { e.stopPropagation(); toggleLock(task.id); }}
               ><LockIcon locked={task.isLocked} size={15} /></button>
-              <button class="card-unschedule" onclick={() => unscheduleTask(task.id)} title="Unschedule">×</button>
+              <button class="reveal-btn card-unschedule" onclick={() => unscheduleTask(task.id)} title="Unschedule">×</button>
             </div>
           {/each}
           {#if ghost && ghost.insertBeforeTaskId === null}
@@ -154,7 +154,7 @@
   }
 
   .outlook-header {
-    font-size: 16px;
+    font-size: var(--text-lg);
     font-weight: 700;
     color: var(--color-text);
     padding: 16px 14px 4px;
@@ -163,7 +163,7 @@
 
   .outlook-empty {
     padding: 16px 14px;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--color-text-muted);
   }
 
@@ -184,19 +184,19 @@
   }
 
   .day-label {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: var(--color-text);
   }
 
   .day-short {
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 400;
     color: var(--color-text-muted);
   }
 
   .day-empty {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-faint);
     padding: 6px 14px 10px;
     font-style: italic;
@@ -264,7 +264,7 @@
   }
 
   .card-desc {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 500;
     color: var(--color-text);
     overflow: hidden;
@@ -281,55 +281,35 @@
     cursor: text;
   }
 
+  /* .inline-edit provides the transparent/underline base */
   .card-desc-input {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 500;
-    font-family: inherit;
-    color: var(--color-text);
-    background: transparent;
-    border: none;
-    border-bottom: 1.5px solid var(--color-text-muted);
-    outline: none;
-    padding: 0;
     flex: 1;
     min-width: 0;
     width: 100%;
   }
 
   .card-duration {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-muted);
     flex-shrink: 0;
     white-space: nowrap;
   }
 
+  /* .reveal-btn provides base opacity/hover-reveal; these set size + trigger */
   .card-unschedule {
     flex-shrink: 0;
-    background: none;
-    border: none;
     font-size: 15px;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    padding: 0 2px;
-    opacity: 0;
-    transition: opacity 0.1s, color 0.1s;
     line-height: 1;
   }
 
   .outlook-card:hover .card-unschedule { opacity: 1; }
-  .card-unschedule:hover { color: #EF5350; }
+  .card-unschedule:hover { color: var(--color-danger); }
 
   .card-lock {
     flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    background: none;
-    border: none;
     color: var(--color-text-faint);
-    cursor: pointer;
-    padding: 0 2px;
-    opacity: 0;
-    transition: opacity 0.1s, color 0.1s;
   }
 
   .outlook-card:hover .card-lock,

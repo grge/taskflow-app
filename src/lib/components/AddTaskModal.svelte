@@ -127,7 +127,7 @@
   .envelope-row {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--spacing-sm);
   }
 
   .datetime-fields {
@@ -137,7 +137,7 @@
   }
 
   .sub-label {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
     display: flex;
     flex-direction: column;
@@ -145,7 +145,7 @@
   }
 
   .sub-label input {
-    font-size: 12px;
+    font-size: var(--text-sm);
     padding: 3px 6px;
   }
 
@@ -161,7 +161,7 @@
     -webkit-appearance: none;
     appearance: none;
     height: 4px;
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     background: var(--color-border);
     outline: none;
     border: none;

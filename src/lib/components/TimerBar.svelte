@@ -57,11 +57,11 @@
 
   .timer-icon {
     color: var(--color-timer-active);
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .timer-task {
-    font-size: 14px;
+    font-size: var(--text-base);
     font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -74,8 +74,8 @@
   }
 
   .timer-elapsed {
-    font-family: Menlo, Consolas, monospace;
-    font-size: 14px;
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
     color: var(--color-timer-active);
     min-width: 80px;
   }
@@ -87,7 +87,7 @@
   }
 
   .timer-btn {
-    font-size: 12px;
+    font-size: var(--text-sm);
     padding: 4px 12px;
   }
 

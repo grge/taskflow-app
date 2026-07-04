@@ -6,6 +6,7 @@
 
 :root {
   /* Radius */
+  --radius-xs:  3px;
   --radius-sm:  6px;
   --radius:     9px;
   --radius-lg:  12px;
@@ -20,8 +21,17 @@
   --font-body: 'Hanken Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: Menlo, Consolas, 'Courier New', monospace;
 
-  /* Legacy alias */
-  --color-primary-old: #4A90E2;
+  /* Type scale */
+  --text-2xs: 10px;
+  --text-xs:  11px;
+  --text-sm:  12px;
+  --text-md:  13px;
+  --text-base: 14px;
+  --text-lg:  16px;
+  --text-xl:  19px;
+
+  /* Elevation */
+  --shadow-elevated: 0 2px 5px rgba(0, 0, 0, 0.25);
 }
 
 body {
@@ -76,7 +86,7 @@ input, select, textarea {
 }
 
 .modal h2 {
-  font-size: 17px;
+  font-size: var(--text-lg);
   font-weight: 600;
   margin-bottom: var(--spacing-md);
 }
@@ -96,7 +106,7 @@ input, select, textarea {
   background: var(--color-card);
   color: var(--color-text-muted);
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--text-md);
   white-space: nowrap;
   flex-shrink: 0;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
@@ -137,8 +147,81 @@ input, select, textarea {
 }
 
 .btn-sm {
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: 4px 10px;
+}
+
+/* ── Segmented control (grouped buttons in one rounded track) ── */
+.seg-group {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  width: fit-content;
+}
+
+.seg-btn {
+  padding: 5px 12px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  border: none;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: background 0.1s, color 0.1s;
+}
+
+.seg-btn:first-child { border-left: none; }
+.seg-btn:hover:not(.active) { background: var(--color-bg); color: var(--color-text); }
+.seg-btn.active { background: var(--color-primary); color: var(--color-primary-text); }
+
+/* ── Square icon button ── */
+.btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.btn-icon:hover {
+  background: var(--color-panel);
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+
+/* ── Hover-reveal button (fades/expands in on parent hover; stays when .is-active) ── */
+.reveal-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.1s;
+}
+
+/* ── Inline-edit input (transparent field with underline) ── */
+.inline-edit {
+  font-family: inherit;
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px solid var(--color-text-muted);
+  outline: none;
+  padding: 0;
+  color: var(--color-text);
 }
 
 /* ── Form fields ── */

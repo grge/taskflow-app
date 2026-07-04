@@ -20,6 +20,10 @@
   --color-accent-tint:       rgba(200, 85, 60, 0.10);
   --color-accent-border:     rgba(200, 85, 60, 0.25);
 
+  --color-success:           #6E8B63;
+  --color-success-tint:      rgba(110, 139, 99, 0.16);
+  --color-danger:            #EF5350;
+
   --color-timer-bg:          #1a1a2e;
   --color-timer-text:        #ffffff;
   --color-timer-active:      #4CAF50;
@@ -54,6 +58,10 @@
   --color-accent:            #4A8048;
   --color-accent-tint:       rgba(74, 128, 72, 0.10);
   --color-accent-border:     rgba(74, 128, 72, 0.25);
+
+  --color-success:           #5E8A54;
+  --color-success-tint:      rgba(94, 138, 84, 0.16);
+  --color-danger:            #C6473E;
 
   --color-timer-bg:          #1C2A1C;
   --color-timer-text:        #EEF3EB;
@@ -90,6 +98,10 @@
   --color-accent-tint:       rgba(204, 80, 56, 0.12);
   --color-accent-border:     rgba(204, 80, 56, 0.28);
 
+  --color-success:           #8AA878;
+  --color-success-tint:      rgba(138, 168, 120, 0.16);
+  --color-danger:            #E06550;
+
   --color-timer-bg:          #140F08;
   --color-timer-text:        #EDD8B8;
   --color-timer-active:      #D47840;
@@ -124,6 +136,10 @@
   --color-accent:            #C05048;
   --color-accent-tint:       rgba(192, 80, 72, 0.12);
   --color-accent-border:     rgba(192, 80, 72, 0.28);
+
+  --color-success:           #7FA0A8;
+  --color-success-tint:      rgba(127, 160, 168, 0.16);
+  --color-danger:            #D8635A;
 
   --color-timer-bg:          #13151E;
   --color-timer-text:        #E2DBD0;

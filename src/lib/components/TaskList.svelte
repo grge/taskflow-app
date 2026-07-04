@@ -4,7 +4,6 @@
   import { pAt, getPressureTier } from '../envelope.js';
   import { clock } from '../../stores/clock.svelte.js';
   import TaskRow from './TaskRow.svelte';
-  import '../../styles/tasklist.css';
 
   let showCompleted = $state(false);
   let sortKey       = $state('pressure');
@@ -71,7 +70,7 @@
       <span class="task-heading-title">Tasks</span>
       <span class="task-count">{totalCount} total · {unscheduledCount} unscheduled</span>
     </div>
-    <button class="add-btn" onclick={() => openModal('add-task')} title="Add task">＋</button>
+    <button class="btn-icon add-btn" onclick={() => openModal('add-task')} title="Add task">＋</button>
   </div>
 
   <div class="sort-bar">
@@ -121,7 +120,7 @@
                 <span class="delta-label">{estimationDelta(task)}</span>
               {/if}
             </div>
-            <button class="restore-btn" onclick={() => restoreTask(task.id)} title="Restore task">↩</button>
+            <button class="reveal-btn restore-btn" onclick={() => restoreTask(task.id)} title="Restore task">↩</button>
           </div>
         {/each}
       {/if}
@@ -155,14 +154,14 @@
   }
 
   .task-heading-title {
-    font-size: 16px;
+    font-size: var(--text-lg);
     font-weight: 700;
     color: var(--color-text);
     flex-shrink: 0;
   }
 
   .task-count {
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 400;
     color: var(--color-text-muted);
     white-space: nowrap;
@@ -170,24 +169,16 @@
     text-overflow: ellipsis;
   }
 
+  /* .btn-icon provides the base; override to the larger 30px header size */
   .add-btn {
     width: 30px;
     height: 30px;
     border-radius: var(--radius);
-    border: 1px solid var(--color-border);
-    background: var(--color-card);
-    color: var(--color-text-muted);
     font-size: 18px;
     font-weight: 500;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    padding: 0;
     flex-shrink: 0;
-    transition: border-color 0.12s, color 0.12s, background 0.12s;
   }
-  .add-btn:hover { border-color: var(--color-text-muted); color: var(--color-text); background: var(--color-surface); }
+  .add-btn:hover { background: var(--color-surface); }
 
   .sort-bar {
     display: flex;
@@ -199,7 +190,7 @@
   }
 
   .sort-label {
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 600;
     color: var(--color-text-faint);
     margin-right: 2px;
@@ -210,7 +201,7 @@
     border-radius: 20px;
     border: 1px solid var(--color-border);
     background: transparent;
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 500;
     color: var(--color-text-muted);
     cursor: pointer;
@@ -240,7 +231,7 @@
     text-align: center;
     color: var(--color-text-muted);
     line-height: 1.8;
-    font-size: 14px;
+    font-size: var(--text-base);
   }
 
   .completed-toggle {
@@ -251,7 +242,7 @@
     border: none;
     border-top: 1px solid var(--color-border-light);
     color: var(--color-text-muted);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 600;
     cursor: pointer;
     font-family: inherit;
@@ -269,14 +260,14 @@
   }
 
   .completed-check {
-    color: #6E8B63;
-    font-size: 13px;
+    color: var(--color-success);
+    font-size: var(--text-md);
     flex-shrink: 0;
   }
 
   .completed-desc {
     flex: 1;
-    font-size: 14px;
+    font-size: var(--text-base);
     text-decoration: line-through;
     color: var(--color-text-muted);
     overflow: hidden;
@@ -289,27 +280,22 @@
     gap: 4px;
     align-items: center;
     flex-shrink: 0;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-faint);
   }
 
   .est-label, .actual-label { white-space: nowrap; }
   .delta-label {
     font-weight: 600;
-    color: #C8553C;
+    color: var(--color-accent);
     white-space: nowrap;
   }
 
+  /* .reveal-btn provides base opacity/hover-reveal; this sets size + trigger */
   .restore-btn {
     flex-shrink: 0;
-    background: none;
-    border: none;
     padding: 2px 4px;
-    font-size: 14px;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s, color 0.15s;
+    font-size: var(--text-base);
     line-height: 1;
   }
   .completed-row:hover .restore-btn { opacity: 1; }

@@ -136,44 +136,28 @@
   .duration-options {
     display: flex;
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     width: fit-content;
   }
 
-  .seg-btn {
-    padding: 5px 14px;
-    font-size: 12px;
-    font-weight: 500;
-    border: none;
-    border-left: 1px solid var(--color-border);
-    background: var(--color-surface);
-    cursor: pointer;
-    color: var(--color-text-muted);
-    transition: background 0.1s, color 0.1s;
-  }
-
-  .seg-btn:first-child { border-left: none; }
-  .seg-btn:hover:not(.active) { background: var(--color-bg); color: var(--color-text); }
-  .seg-btn.active { background: var(--color-primary); color: white; }
-
   .custom-duration {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--spacing-sm);
     margin-top: 6px;
   }
 
   .custom-duration input {
     width: 80px;
     padding: 4px 8px;
-    font-size: 13px;
+    font-size: var(--text-md);
     border: 1px solid var(--color-border);
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
 
   .custom-hint {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-muted);
   }
 </style>

@@ -342,6 +342,8 @@
     text-transform: uppercase;
   }
 
+  /* Endpoints of the pressure gradient (see ENVELOPE_COLOR_STOPS) — literal,
+     not theme-tinted, so the scale reads identically across themes. */
   .y-severe { top: 2px;    color: #C8553C; }
   .y-mild   { bottom: 2px; color: #9BB08D; }
 
@@ -351,7 +353,7 @@
     height: 150px;
     position: relative;
     border: 1px solid var(--color-border);
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     overflow: hidden;
     touch-action: none;
     cursor: grab;
@@ -412,7 +414,7 @@
     background: var(--color-card);
     opacity: 0.85;
     padding: 1px 3px;
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
   }
 
   /* ── Handles ── */
@@ -426,9 +428,11 @@
   .handle {
     border-radius: 50%;
     background: var(--color-card);
-    box-shadow: 0 2px 5px rgba(0,0,0,0.25);
+    box-shadow: var(--shadow-elevated);
   }
 
+  /* Handle rings match the pressure-scale endpoints (onset=low/green,
+     peak=high/red) — literal to stay consistent with the gradient. */
   .handle-onset {
     width: 15px;
     height: 15px;
@@ -440,7 +444,7 @@
     width: 17px;
     height: 17px;
     border: 3px solid #C8553C;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.22);
+    box-shadow: var(--shadow-elevated);
     cursor: move;
   }
 
@@ -454,7 +458,7 @@
   .day-tick {
     position: absolute;
     transform: translateX(-50%);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     color: var(--color-text-faint);
     white-space: nowrap;
@@ -474,8 +478,8 @@
     align-items: center;
     gap: 6px;
     padding: 5px 10px;
-    border-radius: 8px;
-    font-size: 12px;
+    border-radius: var(--radius);
+    font-size: var(--text-sm);
     font-weight: 600;
     white-space: nowrap;
   }
@@ -487,6 +491,6 @@
     border-radius: 999px;
   }
 
-  .chip-now-label { font-size: 11.5px; color: var(--color-text-muted); font-weight: 600; }
-  .chip-now-value { font-size: 12.5px; font-weight: 700; }
+  .chip-now-label { font-size: var(--text-xs); color: var(--color-text-muted); font-weight: 600; }
+  .chip-now-value { font-size: var(--text-md); font-weight: 700; }
 </style>

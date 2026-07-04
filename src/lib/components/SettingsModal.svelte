@@ -283,7 +283,7 @@
     width: 44px;
     height: 38px;
     flex-shrink: 0;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -296,14 +296,14 @@
     display: block;
     width: 40%;
     height: 6px;
-    border-radius: 2px;
+    border-radius: var(--radius-xs);
     flex-shrink: 0;
   }
 
   .theme-preview-card {
     display: block;
     flex: 1;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
   }
 
   .theme-preview[data-theme-preview="warm-parchment"] { background: #FBF7EF; }
@@ -330,14 +330,14 @@
   }
 
   .theme-name {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: var(--color-text);
     line-height: 1.2;
   }
 
   .theme-desc {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
     line-height: 1.3;
   }
@@ -352,7 +352,7 @@
   }
 
   .modal-header h2 {
-    font-size: 16px;
+    font-size: var(--text-lg);
     font-weight: 600;
     margin: 0;
   }
@@ -383,7 +383,7 @@
   }
 
   .section-title {
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -402,13 +402,13 @@
   .section-header .section-title { margin-bottom: 0; }
 
   .section-hint {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-faint);
     white-space: nowrap;
   }
 
   .section-subhint {
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
     margin: 0 0 14px;
   }
@@ -427,7 +427,7 @@
   .hours-axis-tick {
     position: absolute;
     transform: translateX(-50%);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-faint);
     white-space: nowrap;
   }
@@ -466,7 +466,7 @@
   .day-dot.active { background: var(--color-accent); }
 
   .hours-day-name {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 500;
   }
 
@@ -474,7 +474,7 @@
     position: relative;
     flex: 1;
     height: 22px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: repeating-linear-gradient(
       90deg,
       var(--color-panel) 0,
@@ -489,7 +489,7 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: var(--color-accent);
     opacity: 0.85;
     cursor: grab;
@@ -505,8 +505,8 @@
     cursor: ew-resize;
   }
 
-  .hours-handle-start { left: -1px; border-radius: 5px 0 0 5px; }
-  .hours-handle-end   { right: -1px; border-radius: 0 5px 5px 0; }
+  .hours-handle-start { left: -1px; border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+  .hours-handle-end   { right: -1px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 
   .hours-handle::after {
     content: '';
@@ -520,7 +520,7 @@
   }
 
   .hours-range-label {
-    font-size: 12.5px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: var(--color-text);
     width: 118px;
@@ -548,12 +548,12 @@
   }
 
   .field-label {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 500;
   }
 
   .field-hint {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
 
@@ -561,33 +561,9 @@
   .buffer-options {
     display: flex;
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     flex-shrink: 0;
-  }
-
-  .seg-btn {
-    padding: 5px 11px;
-    font-size: 12px;
-    font-weight: 500;
-    border: none;
-    border-left: 1px solid var(--color-border);
-    background: var(--color-surface);
-    cursor: pointer;
-    color: var(--color-text-muted);
-    transition: background 0.1s, color 0.1s;
-  }
-
-  .seg-btn:first-child { border-left: none; }
-
-  .seg-btn:hover:not(.active) {
-    background: var(--color-bg);
-    color: var(--color-text);
-  }
-
-  .seg-btn.active {
-    background: var(--color-primary);
-    color: white;
   }
 
   /* ── Footer ── */
@@ -603,12 +579,12 @@
   .btn-danger-ghost {
     background: none;
     border: none;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-muted);
     padding: 6px 4px;
     cursor: pointer;
     transition: color 0.15s;
   }
 
-  .btn-danger-ghost:hover { color: #EF5350; }
+  .btn-danger-ghost:hover { color: var(--color-danger); }
 </style>

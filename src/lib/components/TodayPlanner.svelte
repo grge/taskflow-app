@@ -177,7 +177,7 @@
             {#if blockRename.isEditing(fb.id)}
               <!-- svelte-ignore a11y_autofocus -->
               <input
-                class="fixed-label-input"
+                class="inline-edit fixed-label-input"
                 bind:value={blockRename.draft}
                 onblur={blockRename.commit}
                 onkeydown={blockRename.onKeydown}
@@ -191,7 +191,7 @@
                 title="Double-click to rename"
               >{fb.label}</span>
             {/if}
-            <button class="unschedule-x" onclick={(e) => { e.stopPropagation(); removeFixedBlock(fb.id); }} title="Delete block">×</button>
+            <button class="reveal-btn unschedule-x" onclick={(e) => { e.stopPropagation(); removeFixedBlock(fb.id); }} title="Delete block">×</button>
           </div>
         {/each}
 
@@ -211,7 +211,7 @@
               {#if taskRename.isEditing(task.id)}
                 <!-- svelte-ignore a11y_autofocus -->
                 <input
-                  class="block-name-input"
+                  class="inline-edit block-name-input"
                   bind:value={taskRename.draft}
                   onblur={taskRename.commit}
                   onkeydown={taskRename.onKeydown}
@@ -230,7 +230,7 @@
               {/if}
             </div>
             <button
-              class="block-lock"
+              class="reveal-btn block-lock"
               class:is-locked={task.isLocked}
               title={task.isLocked
                 ? 'Locked — Clear will keep this block'
@@ -238,7 +238,7 @@
               onmousedown={(e) => e.stopPropagation()}
               onclick={(e) => { e.stopPropagation(); toggleLock(task.id); }}
             ><LockIcon locked={task.isLocked} size={14} /></button>
-            <button class="unschedule-x" onclick={(e) => { e.stopPropagation(); unscheduleTask(task.id); }} title="Unschedule">×</button>
+            <button class="reveal-btn unschedule-x" onclick={(e) => { e.stopPropagation(); unscheduleTask(task.id); }} title="Unschedule">×</button>
           </div>
         {/each}
 
@@ -299,7 +299,7 @@
     border: none;
     border-radius: 0;
     color: var(--color-text-muted);
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     line-height: 1;
     padding: 0 9px;
@@ -331,7 +331,7 @@
     border: none;
     border-radius: 0;
     color: var(--color-text-faint);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 600;
     padding: 4px 9px;
     cursor: default;
@@ -356,7 +356,7 @@
   }
 
   .planner-date {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-muted);
   }
 
@@ -372,7 +372,7 @@
     justify-content: center;
     flex: 1;
     color: var(--color-text-muted);
-    font-size: 13px;
+    font-size: var(--text-md);
     padding: 40px 32px;
     min-height: 120px;
   }
@@ -397,7 +397,7 @@
     position: absolute;
     right: 8px;
     transform: translateY(-50%);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-faint);
     white-space: nowrap;
     line-height: 1;
@@ -410,7 +410,7 @@
     min-height: 420px;
     background: var(--color-card);
     border: 1px solid var(--color-border);
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     overflow: visible; /* allow now-dot to hang left */
   }
 
@@ -459,11 +459,9 @@
     opacity: 0.35;
   }
 
-  .fixed-block:hover .unschedule-x { opacity: 1; }
-
   .fixed-label {
     display: block;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-muted);
     font-weight: 500;
     cursor: text;
@@ -473,16 +471,13 @@
     white-space: nowrap;
   }
 
+  /* .inline-edit provides the transparent/underline base; this is the compact
+     fixed-block variant (muted colour, thinner underline, tight width). */
   .fixed-label-input {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 500;
-    font-family: inherit;
     color: var(--color-text-muted);
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid var(--color-text-muted);
-    outline: none;
-    padding: 0;
+    border-bottom-width: 1px;
     width: calc(100% - 8px);
     line-height: 1;
     pointer-events: all;
@@ -495,7 +490,7 @@
     right: 0;
     background: var(--color-card);
     border: 1px solid var(--color-border-light);
-    border-radius: 7px;
+    border-radius: var(--radius);
     z-index: 4;
     cursor: grab;
     overflow: hidden;
@@ -524,7 +519,7 @@
   .block-accent {
     width: 5px;
     flex-shrink: 0;
-    border-radius: 6px 0 0 6px;
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
   }
 
   .block-content {
@@ -537,7 +532,7 @@
   }
 
   .block-name {
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 600;
     color: var(--color-text);
     overflow: hidden;
@@ -549,59 +544,42 @@
     max-width: 100%;
   }
 
+  /* .inline-edit provides the transparent/underline base */
   .block-name-input {
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 600;
-    font-family: inherit;
-    color: var(--color-text);
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid var(--color-text-muted);
-    outline: none;
-    padding: 0;
+    border-bottom-width: 1px;
     width: 100%;
     line-height: 1.3;
   }
 
   .block-time {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-muted);
     line-height: 1.2;
     margin-top: 1px;
   }
 
+  /* .reveal-btn provides opacity base + hover-reveal; these position over the block */
   .unschedule-x {
     position: absolute;
     top: 1px;
     right: 3px;
-    background: none;
-    border: none;
     font-size: 16px;
     line-height: 1;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    padding: 0 2px;
-    opacity: 0;
-    transition: opacity 0.1s;
     z-index: 1;
   }
 
-  .task-block:hover .unschedule-x { opacity: 1; }
-  .unschedule-x:hover { color: #EF5350; }
+  .task-block:hover .unschedule-x,
+  .fixed-block:hover .unschedule-x { opacity: 1; }
+  .unschedule-x:hover { color: var(--color-danger); }
 
   /* Lock toggle on scheduled blocks: sits left of the × */
   .block-lock {
     position: absolute;
     top: 3px;
     right: 22px;
-    display: flex;
-    background: none;
-    border: none;
     color: var(--color-text-faint);
-    cursor: pointer;
-    padding: 0 2px;
-    opacity: 0;
-    transition: opacity 0.1s, color 0.1s;
     z-index: 1;
   }
 
@@ -623,7 +601,7 @@
     background: var(--color-panel);
     border: 1.5px dashed var(--color-border);
     opacity: 0.7;
-    border-radius: 7px;
+    border-radius: var(--radius);
     z-index: 5;
     pointer-events: none;
   }

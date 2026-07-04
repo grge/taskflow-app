@@ -148,7 +148,7 @@
           {#if regression}
             <line
               x1={regression.x1} y1={regression.y1} x2={regression.x2} y2={regression.y2}
-              stroke="#4A90E2" stroke-width="1.5" stroke-dasharray="5 3" opacity="0.7"
+              stroke="var(--color-primary)" stroke-width="1.5" stroke-dasharray="5 3" opacity="0.7"
             />
           {/if}
 
@@ -176,7 +176,7 @@
         <div class="legend">
           <span class="legend-item">color = peak pressure</span>
           <span class="legend-item">
-            <svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#4A90E2" stroke-width="1.5" stroke-dasharray="5 3"/></svg>
+            <svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="var(--color-primary)" stroke-width="1.5" stroke-dasharray="5 3"/></svg>
             fit
           </span>
         </div>
@@ -207,7 +207,7 @@
   }
 
   .modal-header h2 {
-    font-size: 16px;
+    font-size: var(--text-lg);
     font-weight: 600;
     margin: 0;
   }
@@ -239,7 +239,7 @@
   .stat:last-child { border-right: none; }
 
   .stat-value {
-    font-size: 18px;
+    font-size: var(--text-lg);
     font-weight: 700;
     color: var(--color-text);
     font-variant-numeric: tabular-nums;
@@ -250,7 +250,7 @@
   }
 
   .stat-label {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
     margin-top: 2px;
     text-align: center;
@@ -270,7 +270,7 @@
 
   .x-label {
     text-align: center;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
     margin-top: -4px;
     margin-bottom: 4px;
@@ -281,7 +281,7 @@
     left: 4px;
     top: 50%;
     transform: translateY(-50%) rotate(-90deg);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
     white-space: nowrap;
   }
@@ -290,7 +290,7 @@
     display: flex;
     gap: 12px;
     justify-content: center;
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
     padding-bottom: 8px;
   }
@@ -307,19 +307,4 @@
     padding: 12px 20px;
     border-top: 1px solid var(--color-border);
   }
-
-  .btn {
-    padding: 6px 16px;
-    border-radius: var(--radius);
-    border: none;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .btn-primary {
-    background: var(--color-primary);
-    color: white;
-  }
-  .btn-primary:hover { background: var(--color-primary-hover); }
 </style>

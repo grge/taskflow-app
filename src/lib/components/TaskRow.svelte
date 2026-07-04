@@ -110,7 +110,7 @@
         {#if rename.isEditing(task.id)}
           <!-- svelte-ignore a11y_autofocus -->
           <input
-            class="desc-input"
+            class="inline-edit desc-input"
             bind:value={rename.draft}
             onblur={rename.commit}
             onkeydown={rename.onKeydown}
@@ -174,7 +174,7 @@
           <span class="chip-handle">⠿</span>
           <span class="chip-duration" title={hasProgress ? `${formatDuration(remainMinutes)} left of ${formatDuration(task.estimatedMinutes)} est` : null}>{formatDuration(remainMinutes)}</span>
           <button
-            class="chip-lock"
+            class="reveal-btn chip-lock"
             class:is-locked={isLocked}
             title={isLocked
               ? 'Locked — auto-scheduler will skip this task'
@@ -202,14 +202,14 @@
       <div class="footer-controls">
         {#if isTimerRunning}
           {#if isTimerPaused}
-            <button class="footer-btn" title="Resume timer" onclick={() => resumeTimer(task.id)}>▶</button>
+            <button class="btn-icon footer-btn" title="Resume timer" onclick={() => resumeTimer(task.id)}>▶</button>
           {:else}
-            <button class="footer-btn" title="Pause timer" onclick={() => pauseTimer(task.id)}>⏸</button>
+            <button class="btn-icon footer-btn" title="Pause timer" onclick={() => pauseTimer(task.id)}>⏸</button>
           {/if}
         {:else}
-          <button class="footer-btn" title="Start timer" onclick={() => startTimer(task.id)}>▶</button>
+          <button class="btn-icon footer-btn" title="Start timer" onclick={() => startTimer(task.id)}>▶</button>
         {/if}
-        <button class="footer-btn" title="Stop timer" onclick={() => finishTimer(task.id)}>■</button>
+        <button class="btn-icon footer-btn" title="Stop timer" onclick={() => finishTimer(task.id)}>■</button>
       </div>
     </div>
   {/if}
@@ -229,10 +229,10 @@
         <div class="stat-panel stat-panel-left">
           <span class="stat-label">Left</span>
           <div class="stat-stepper">
-            <button class="stepper-btn" title="Less time left"
+            <button class="btn-icon stepper-btn" title="Less time left"
               onclick={(e) => { e.stopPropagation(); stepRemaining(-1); }}>−</button>
             <span class="stat-value">{formatHoursMinutes(remainMinutes)}</span>
-            <button class="stepper-btn" title="More time left"
+            <button class="btn-icon stepper-btn" title="More time left"
               onclick={(e) => { e.stopPropagation(); stepRemaining(1); }}>＋</button>
           </div>
         </div>
@@ -356,8 +356,8 @@
   }
 
   .complete-circle:hover {
-    background: #6E8B63;
-    border-color: #6E8B63;
+    background: var(--color-success);
+    border-color: var(--color-success);
     color: #fff;
   }
 
@@ -379,7 +379,7 @@
 
   .status-badge {
     flex-shrink: 0;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     letter-spacing: 0.03em;
     padding: 2px 7px;
@@ -388,8 +388,8 @@
   }
 
   .badge-working {
-    background: rgba(110,139,99,0.16);
-    color: #6E8B63;
+    background: var(--color-success-tint);
+    color: var(--color-success);
   }
 
   .badge-paused {
@@ -398,7 +398,7 @@
   }
 
   .task-desc {
-    font-size: 14px;
+    font-size: var(--text-base);
     font-weight: 500;
     color: var(--color-text);
     overflow: hidden;
@@ -414,17 +414,11 @@
     cursor: text;
   }
 
+  /* .inline-edit provides the transparent/underline base */
   .desc-input {
     width: 100%;
-    font-size: 14px;
+    font-size: var(--text-base);
     font-weight: 500;
-    font-family: inherit;
-    border: none;
-    border-bottom: 1.5px solid var(--color-text-muted);
-    background: transparent;
-    outline: none;
-    padding: 0;
-    color: var(--color-text);
     line-height: 1.3;
   }
 
@@ -432,7 +426,7 @@
     display: flex;
     align-items: center;
     gap: 5px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -460,7 +454,7 @@
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--color-text-muted);
-    font-size: 11px;
+    font-size: var(--text-xs);
     cursor: pointer;
     overflow: hidden;
     opacity: 0;
@@ -498,7 +492,7 @@
     align-items: center;
     justify-content: center;
     width: 100%;
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 600;
     color: var(--color-text-muted);
     text-align: center;
@@ -559,7 +553,7 @@
     display: flex;
     align-items: center;
     padding-left: 6px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-faint);
   }
 
@@ -568,26 +562,19 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 600;
     color: var(--color-text);
     white-space: nowrap;
   }
 
-  /* Lock toggle on the chip: hidden until hover, but always shown when locked */
+  /* Lock toggle on the chip: .reveal-btn provides the opacity base; this adds
+     the width-expand animation (hidden until hover, always shown when locked). */
   .chip-lock {
     flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     width: 0;
-    padding: 0;
-    border: none;
-    background: transparent;
     color: var(--color-text-faint);
-    cursor: pointer;
     overflow: hidden;
-    opacity: 0;
     transition: width 0.12s, opacity 0.12s, color 0.1s;
   }
 
@@ -617,7 +604,7 @@
     font-size: 15px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
-    color: #6E8B63;
+    color: var(--color-success);
     flex-shrink: 0;
     min-width: 44px;
   }
@@ -625,20 +612,20 @@
   .footer-bar-track {
     flex: 1;
     height: 6px;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     background: var(--color-border-light);
     overflow: hidden;
   }
 
   .footer-bar-fill {
     height: 100%;
-    border-radius: 3px;
-    background: #6E8B63;
+    border-radius: var(--radius-xs);
+    background: var(--color-success);
     transition: width 0.2s;
   }
 
   .footer-est {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-muted);
     white-space: nowrap;
     flex-shrink: 0;
@@ -651,25 +638,9 @@
     flex-shrink: 0;
   }
 
+  /* .btn-icon provides the 26px square base + hover; just set the glyph size */
   .footer-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-card);
-    color: var(--color-text-muted);
-    font-size: 10px;
-    cursor: pointer;
-    transition: background 0.1s, color 0.1s, border-color 0.1s;
-  }
-
-  .footer-btn:hover {
-    background: var(--color-panel);
-    color: var(--color-text);
-    border-color: var(--color-text-muted);
+    font-size: var(--text-2xs);
   }
 
   /* ── Expanded panel ── */
@@ -706,11 +677,11 @@
 
   /* The editable middle panel is the emphasis of the row. */
   .stat-panel-left {
-    background: color-mix(in srgb, #6E8B63 7%, var(--color-card));
+    background: color-mix(in srgb, var(--color-success) 7%, var(--color-card));
   }
 
   .stat-label {
-    font-size: 10.5px;
+    font-size: var(--text-2xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -718,7 +689,7 @@
   }
 
   .stat-value {
-    font-size: 19px;
+    font-size: var(--text-xl);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     line-height: 1.1;
@@ -726,7 +697,7 @@
   }
 
   .stat-panel .stat-value { color: var(--color-text-muted); }
-  .stat-panel-left .stat-label { color: #6E8B63; }
+  .stat-panel-left .stat-label { color: var(--color-success); }
   .stat-panel-left .stat-value { color: var(--color-text); font-weight: 700; min-width: 44px; text-align: center; }
 
   .stat-stepper {
@@ -735,23 +706,14 @@
     gap: 6px;
   }
 
+  /* .btn-icon provides the base; override to the slightly larger 28px stepper */
   .stepper-btn {
     width: 28px;
     height: 28px;
-    border: 1px solid var(--color-border);
-    background: var(--color-card);
-    color: var(--color-text-muted);
-    border-radius: var(--radius-sm);
     font-size: 15px;
     font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: border-color 0.1s, color 0.1s;
     flex-shrink: 0;
   }
-  .stepper-btn:hover { border-color: var(--color-text-muted); color: var(--color-text); }
 
   /* ── Progress bar + override reset ── */
   .expanded-progress {
@@ -764,14 +726,14 @@
   .expanded-progress .footer-bar-track { flex: 1; }
 
   .override-note {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-faint);
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .link-btn {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-primary);
     background: none;
     border: none;
@@ -794,7 +756,7 @@
     background: var(--color-card);
     color: var(--color-text);
     border-radius: var(--radius-sm);
-    font-size: 14px;
+    font-size: var(--text-base);
     font-weight: 600;
     cursor: pointer;
     transition: border-color 0.1s, background 0.1s;
@@ -813,13 +775,13 @@
   }
 
   .section-label {
-    font-size: 12.5px;
+    font-size: var(--text-md);
     font-weight: 400;
     color: var(--color-text-muted);
   }
 
   .pressure-pill {
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 600;
     color: color-mix(in srgb, var(--pill) 70%, var(--color-text));
     background: color-mix(in srgb, var(--pill) 15%, var(--color-card));
@@ -839,7 +801,7 @@
   }
 
   .action-text {
-    font-size: 12px;
+    font-size: var(--text-sm);
     background: none;
     border: none;
     cursor: pointer;
