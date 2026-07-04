@@ -1,6 +1,7 @@
 <script>
   import { clock } from '../../stores/clock.svelte.js';
   import { pToColor } from '../envelope.js';
+  import { parseLocalDate } from '../calendar.js';
 
   // showNowBadge: the in-chart "now Low · 0%" readout. Hidden where the caller
   // surfaces the current pressure elsewhere (e.g. the expanded task panel header).
@@ -10,7 +11,7 @@
   const VIEW_DAYS = 7;
 
   // Default view: today midnight → +7 days. Mutable so pan/zoom work.
-  function defaultStart() { return new Date(clock.today + 'T00:00:00').getTime(); }
+  function defaultStart() { return parseLocalDate(clock.today).getTime(); }
 
   let viewStartMs = $state(defaultStart());
   let viewEndMs   = $state(defaultStart() + VIEW_DAYS * DAY_MS);
@@ -78,7 +79,7 @@
 
   // Adaptive tick interval: aim for ~5-8 ticks regardless of zoom level
   let dayLabels = $derived((() => {
-    const todayMs = new Date(clock.today + 'T00:00:00').getTime();
+    const todayMs = parseLocalDate(clock.today).getTime();
     const span = viewEndMs - viewStartMs;
     const labels = [];
 

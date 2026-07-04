@@ -66,6 +66,55 @@ export function splitTaskAcrossDays(taskId, dropDate, startMinutes, durationMinu
   return blocks;
 }
 
+// A free interval is a contiguous stretch of work time unoccupied by blocking
+// blocks. Represented as { date, startMinutes, endMinutes } — always within a
+// single work day (intervals do not span day boundaries).
+//
+// `blockingBlocks` are anything that carves the work window: manual scheduled
+// blocks, fixed blocks, or both. Each is expanded by bufferMinutes on both
+// sides to enforce a gap. Only days at or after `fromDate` are considered, and
+// the first day is clamped to `fromDate`'s time-of-day.
+export function computeFreeIntervals(visibleDays, blockingBlocks, fromDate, bufferMinutes = 0) {
+  const fromStr = toISODate(fromDate);
+  const fromMinutes = fromDate.getHours() * 60 + fromDate.getMinutes();
+  const intervals = [];
+
+  for (const { date, daySchedule } of visibleDays) {
+    const dateStr = toISODate(date);
+
+    // Skip days entirely before `from`.
+    if (dateStr < fromStr) continue;
+
+    // Blocking blocks on this day, sorted by start time.
+    // Expand each block by bufferMinutes on both sides to enforce the gap.
+    const dayBlocks = blockingBlocks
+      .filter(b => b.date === dateStr)
+      .sort((a, b) => a.startMinutes - b.startMinutes)
+      .map(b => ({
+        startMinutes: Math.max(daySchedule.startMinutes, b.startMinutes - bufferMinutes),
+        endMinutes:   Math.min(daySchedule.endMinutes,   b.startMinutes + b.durationMinutes + bufferMinutes)
+      }));
+
+    // Work period start, clamped to `from` if this is the first day.
+    let cursor = dateStr === fromStr
+      ? Math.max(daySchedule.startMinutes, fromMinutes)
+      : daySchedule.startMinutes;
+
+    for (const block of dayBlocks) {
+      if (block.startMinutes > cursor) {
+        intervals.push({ date: dateStr, startMinutes: cursor, endMinutes: block.startMinutes });
+      }
+      cursor = Math.max(cursor, block.endMinutes);
+    }
+
+    if (cursor < daySchedule.endMinutes) {
+      intervals.push({ date: dateStr, startMinutes: cursor, endMinutes: daySchedule.endMinutes });
+    }
+  }
+
+  return intervals;
+}
+
 export function placeBlockOnTask(task, blocks) {
   const arr = Array.isArray(blocks) ? blocks : [blocks];
   return { ...task, scheduledBlocks: arr, lastModifiedAt: new Date() };

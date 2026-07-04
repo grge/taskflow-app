@@ -1,28 +1,18 @@
-import { getDaySchedule, getVisibleWorkDays, toISODate } from './calendar.js';
-import { splitTaskAcrossDays } from './scheduling.js';
+import { getVisibleWorkDays, parseLocalDate } from './calendar.js';
+import { computeFreeIntervals } from './scheduling.js';
 import { schedulableMinutes } from './tasks.js';
 
-// Advance cursor past any fixed blocks that conflict with [cursor, cursor+duration).
-// Returns the first valid start, or null if the task won't fit before dayEnd.
-function advancePastFixedBlocks(cursor, durationMinutes, dayFixedBlocks, daySchedule) {
-  let pos = cursor;
-  while (pos + durationMinutes <= daySchedule.endMinutes) {
-    const conflict = dayFixedBlocks.find(fb =>
-      pos < fb.startMinutes + fb.durationMinutes &&
-      pos + durationMinutes > fb.startMinutes
-    );
-    if (!conflict) return pos;
-    pos = conflict.startMinutes + conflict.durationMinutes;
-  }
-  return null;
-}
-
 // Reorder tasks for a given day, packing sequentially from day start.
-// Tasks that don't fit on the target day spill to subsequent work days via
-// splitTaskAcrossDays rather than being silently dropped.
+// Tasks that don't fit on the target day spill to subsequent work days rather
+// than being silently dropped. Placement carves around `occupiedBlocks` —
+// fixed blocks plus any scheduled tasks on future days that aren't being
+// repacked here — so spilled tasks never land on top of existing blocks.
+//
+// Unlike the auto-scheduler, order is taken as given (the user's drag); this
+// routine only decides *where* each task lands, not the sequence.
 //
 // Returns { reordered: Task[], blocks: Map<taskId, ScheduledBlock> }
-export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, schedule, fixedBlocks, date) {
+export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, schedule, occupiedBlocks, date) {
   const movedTask    = orderedTasks.find(t => t.id === movedTaskId);
   const withoutMoved = orderedTasks.filter(t => t.id !== movedTaskId);
   const reordered    = [
@@ -31,62 +21,49 @@ export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, sched
     ...withoutMoved.slice(newIndex)
   ];
 
-  const dayDate      = new Date(date + 'T00:00:00');
-  const daySchedule  = getDaySchedule(dayDate, schedule);
-  const blocks       = new Map();
+  const blocks = new Map();
 
-  if (!daySchedule) return { reordered, blocks };
-
-  const bufferMinutes  = schedule.bufferMinutes ?? 0;
-  const dayFixedBlocks = (fixedBlocks || [])
-    .filter(b => b.date === date)
-    .sort((a, b) => a.startMinutes - b.startMinutes);
-
-  // Look ahead enough days to absorb any overflow
+  // Look ahead enough days to absorb any overflow.
   const visibleDays = getVisibleWorkDays(schedule, 21);
+  if (!visibleDays.length) return { reordered, blocks };
 
-  let cursor = daySchedule.startMinutes;
+  const bufferMinutes = schedule.bufferMinutes ?? 0;
+  const fromDate = parseLocalDate(date);
 
+  // Free gaps from the target day onward, carving around everything occupied.
+  const intervals = computeFreeIntervals(visibleDays, occupiedBlocks || [], fromDate, bufferMinutes);
+
+  // Outlook cards are single-day placements: each task must fit whole inside one
+  // free interval (no cross-day splitting). Pack in the given order, never
+  // stepping backward — each task takes the first interval, at or after the
+  // previous placement, that's large enough. This keeps chronological order in
+  // sync with the user's chosen sequence; overflow spills to future days.
+  let cursorIdx = 0;
   for (const task of reordered) {
     const rem = schedulableMinutes(task);
-    const start = advancePastFixedBlocks(cursor, rem, dayFixedBlocks, daySchedule);
 
-    if (start !== null) {
-      // Fits on the target day
-      blocks.set(task.id, {
-        id:              crypto.randomUUID(),
-        taskId:          task.id,
-        date,
-        startMinutes:    start,
-        durationMinutes: rem
-      });
-      cursor = start + rem + bufferMinutes;
-    } else {
-      // Overflows — spill to the next available work day after the target date
-      const futureDays = visibleDays.filter(d => toISODate(d.date) > date);
-      let placed = false;
-      for (const { date: spillDate } of futureDays) {
-        const spillDateStr  = toISODate(spillDate);
-        const spillSchedule = getDaySchedule(spillDate, schedule);
-        if (!spillSchedule) continue;
-        const spillFixed = (fixedBlocks || []).filter(b => b.date === spillDateStr);
-        const spillStart = advancePastFixedBlocks(
-          spillSchedule.startMinutes, rem, spillFixed, spillSchedule
-        );
-        if (spillStart !== null) {
-          blocks.set(task.id, {
-            id:              crypto.randomUUID(),
-            taskId:          task.id,
-            date:            spillDateStr,
-            startMinutes:    spillStart,
-            durationMinutes: rem
-          });
-          placed = true;
-          break;
-        }
+    let placedIdx = -1;
+    for (let i = cursorIdx; i < intervals.length; i++) {
+      if (intervals[i].endMinutes - intervals[i].startMinutes >= rem) {
+        placedIdx = i;
+        break;
       }
-      // If no future day can fit it either, leave it unscheduled (no entry in blocks map)
     }
+    if (placedIdx === -1) continue; // no gap ahead fits it — leave unscheduled
+
+    const iv = intervals[placedIdx];
+    blocks.set(task.id, {
+      id:              crypto.randomUUID(),
+      taskId:          task.id,
+      date:            iv.date,
+      startMinutes:    iv.startMinutes,
+      durationMinutes: rem
+    });
+
+    // Consume the placed span (+ buffer); resume the next task from here so
+    // placement only ever advances.
+    iv.startMinutes += rem + bufferMinutes;
+    cursorIdx = placedIdx;
   }
 
   return { reordered, blocks };

@@ -1,53 +1,7 @@
 import { accumulatedPressure } from './envelope.js';
-import { advanceWork, getVisibleWorkDays, toISODate } from './calendar.js';
-import { splitTaskAcrossDays } from './scheduling.js';
+import { advanceWork, getVisibleWorkDays, parseLocalDate } from './calendar.js';
+import { splitTaskAcrossDays, computeFreeIntervals } from './scheduling.js';
 import { schedulableMinutes } from './tasks.js';
-
-// ─── free interval computation ───────────────────────────────────────────────
-
-// A free interval is a contiguous stretch of work time unoccupied by manual
-// blocks. Represented as { date, startMinutes, endMinutes } — always within a
-// single work day (intervals do not span day boundaries).
-function computeFreeIntervals(visibleDays, manualBlocks, fromDate, bufferMinutes = 0) {
-  const fromStr = toISODate(fromDate);
-  const fromMinutes = fromDate.getHours() * 60 + fromDate.getMinutes();
-  const intervals = [];
-
-  for (const { date, daySchedule } of visibleDays) {
-    const dateStr = toISODate(date);
-
-    // Skip days entirely before `from`.
-    if (dateStr < fromStr) continue;
-
-    // Manual blocks on this day, sorted by start time.
-    // Expand each block by bufferMinutes on both sides to enforce the gap.
-    const dayBlocks = manualBlocks
-      .filter(b => b.date === dateStr)
-      .sort((a, b) => a.startMinutes - b.startMinutes)
-      .map(b => ({
-        startMinutes: Math.max(daySchedule.startMinutes, b.startMinutes - bufferMinutes),
-        endMinutes:   Math.min(daySchedule.endMinutes,   b.startMinutes + b.durationMinutes + bufferMinutes)
-      }));
-
-    // Work period start, clamped to `from` if this is the first day.
-    let cursor = dateStr === fromStr
-      ? Math.max(daySchedule.startMinutes, fromMinutes)
-      : daySchedule.startMinutes;
-
-    for (const block of dayBlocks) {
-      if (block.startMinutes > cursor) {
-        intervals.push({ date: dateStr, startMinutes: cursor, endMinutes: block.startMinutes });
-      }
-      cursor = Math.max(cursor, block.endMinutes);
-    }
-
-    if (cursor < daySchedule.endMinutes) {
-      intervals.push({ date: dateStr, startMinutes: cursor, endMinutes: daySchedule.endMinutes });
-    }
-  }
-
-  return intervals;
-}
 
 // ─── packSequence ────────────────────────────────────────────────────────────
 
@@ -99,7 +53,7 @@ export function packSequence(sequence, schedule, manualBlocks = [], fixedBlocks 
         // Advance cursor to end of last placed block, plus inter-task buffer
         // (skip buffer after the last task).
         const last = blocks[blocks.length - 1];
-        cursorDate = new Date(last.date + 'T00:00:00');
+        cursorDate = parseLocalDate(last.date);
         cursorDate.setMinutes(last.startMinutes + last.durationMinutes + (isLast ? 0 : bufferMinutes));
         placed = true;
         break;
@@ -122,7 +76,7 @@ export function totalCost(blocks, tasks) {
     const last = taskBlocks.reduce((a, b) =>
       (b.partIndex ?? 1) > (a.partIndex ?? 1) ? b : a
     );
-    const completionTime = new Date(last.date + 'T00:00:00');
+    const completionTime = parseLocalDate(last.date);
     completionTime.setMinutes(last.startMinutes + last.durationMinutes);
     cost += accumulatedPressure(task, completionTime);
   }

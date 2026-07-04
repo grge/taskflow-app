@@ -14,8 +14,11 @@
   function todayStr() { return toISODate(new Date()); }
   function nowTimeStr() {
     const n = new Date();
-    const h = String(n.getHours()).padStart(2, '0');
-    const m = String(Math.round(n.getMinutes() / SNAP_MINUTES) * SNAP_MINUTES % 60).padStart(2, '0');
+    // Snap the whole time-of-day, so rounding minutes up to :00 carries into the
+    // hour (9:53 → 10:00, not 9:00). Wraps past midnight via % 24.
+    const total = Math.round((n.getHours() * 60 + n.getMinutes()) / SNAP_MINUTES) * SNAP_MINUTES;
+    const h = String(Math.floor(total / 60) % 24).padStart(2, '0');
+    const m = String(total % 60).padStart(2, '0');
     return `${h}:${m}`;
   }
 

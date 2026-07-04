@@ -106,6 +106,16 @@ export function toISODate(date) {
   return `${y}-${m}-${d}`;
 }
 
+// Parse a 'YYYY-MM-DD' string to a Date at LOCAL midnight — the inverse of
+// toISODate. The app is timezone-naive: day boundaries are local, and every
+// stored date string round-trips through this pair. Appending 'T00:00:00'
+// (no 'Z') is what makes the browser parse in local time rather than UTC;
+// using new Date('YYYY-MM-DD') directly would parse as UTC and shift the day
+// for anyone west of GMT. Keep that assumption here, in one place.
+export function parseLocalDate(dateStr) {
+  return new Date(dateStr + 'T00:00:00');
+}
+
 export function minutesToTimeString(minutes) {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;

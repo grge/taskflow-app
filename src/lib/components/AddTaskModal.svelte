@@ -1,6 +1,7 @@
 <script>
   import { closeModal } from '../../stores/ui.svelte.js';
   import { addTask } from '../../stores/tasks.svelte.js';
+  import { formatDuration } from '../format.js';
   import EnvelopeEditor from './EnvelopeEditor.svelte';
 
   const DAY_MS = 24 * 60 * 60 * 1000;
@@ -24,12 +25,6 @@
 
   function fromDatetimeLocal(s) {
     return s ? new Date(s) : null;
-  }
-
-  function formatDuration(mins) {
-    if (mins >= 60 && mins % 60 === 0) return `${mins / 60}h`;
-    if (mins >= 60) return `${(mins / 60).toFixed(1)}h`;
-    return `${mins}m`;
   }
 
   function submit() {

@@ -1,254 +1,156 @@
 import interact from 'interactjs';
 import { setDragState, setPreviewBlock, setOutlookPreview, setBerthGhost } from '../stores/ui.svelte.js';
-import { scheduleTask, unscheduleTask, tasks, withLiveElapsed } from '../stores/tasks.svelte.js';
-import { splitTaskAcrossDays } from './scheduling.js';
-import { schedulableMinutes } from './tasks.js';
-import { getVisibleWorkDays, retreatWork, toISODate, getDaySchedule } from './calendar.js';
-import { workSchedule, fixedBlocks, editFixedBlock } from '../stores/schedule.svelte.js';
-import { reorderAndBumpForward } from './outlook-scheduler.js';
+import { scheduleTask, unscheduleTask, commitOutlookDrop, tasks, withLiveElapsed } from '../stores/tasks.svelte.js';
+import { workSchedule, editFixedBlock } from '../stores/schedule.svelte.js';
+import {
+  cellFromPoint, outlookDayFromPoint, outlookCardFromPoint, cellKey, getEntriesForDay
+} from './dnd-hittest.js';
+import {
+  computeBlocksForCell, resolveFixedBlockDrop, computeOutlookInsertion
+} from './drop-placement.js';
 import { SNAP_MINUTES } from './constants.js';
-
-// ─── DOM hit-testing ─────────────────────────────────────────────────────────
-
-function cellFromPoint(x, y) {
-  return document.elementsFromPoint(x, y)
-    .find(el => el.dataset.date && el.dataset.start != null) ?? null;
-}
-
-// Returns the outlook day container element under the pointer, or null.
-function outlookDayFromPoint(x, y) {
-  return document.elementsFromPoint(x, y)
-    .find(el => el.dataset.outlookDay) ?? null;
-}
-
-
-// Returns the outlook card element under the pointer that belongs to dayEl,
-// excluding the card for excludeTaskId (the one being dragged).
-function outlookCardFromPoint(x, y, dayEl, excludeTaskId) {
-  if (!dayEl) return null;
-  return document.elementsFromPoint(x, y)
-    .find(el => el.dataset.outlookTaskId
-             && el.dataset.outlookTaskId !== excludeTaskId
-             && dayEl.contains(el)) ?? null;
-}
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
+// Task with live timer time folded in, so previewed/committed block size matches
+// the "X left" shown on the card while a timer runs.
 function getTask(taskId) {
   const t = tasks.value.find(t => t.id === taskId) ?? null;
-  // Fold in live timer time so the previewed/committed block size matches the
-  // "X left" the task card shows while a timer is running.
   return t ? withLiveElapsed(t) : null;
+}
+
+// The hit-test layer works with { date, start } cell descriptors; unwrap the
+// element's datasets once here.
+function cellDescriptor(cell) {
+  return cell ? { date: cell.dataset.date, start: parseInt(cell.dataset.start, 10) } : null;
 }
 
 function startDragCursor() { document.documentElement.classList.add('dragging-active'); }
 function endDragCursor()   { document.documentElement.classList.remove('dragging-active'); }
 
-function cellKey(cell) {
-  return cell ? `${cell.dataset.date}:${cell.dataset.start}` : null;
+function clearPreviews() {
+  setPreviewBlock(null);
+  setOutlookPreview(null);
+  setBerthGhost(null);
 }
 
-// Read current non-ghost card task IDs for a day, in DOM order.
-function getEntriesForDay(dayDateStr) {
-  const dayEl = document.querySelector(`[data-outlook-day="${dayDateStr}"]`);
-  if (!dayEl) return [];
-  return [...dayEl.querySelectorAll('[data-outlook-task-id]')]
-    .filter(el => !el.classList.contains('outlook-card-ghost'))
-    .map(el => el.dataset.outlookTaskId);
-}
+// ─── shared drag core ─────────────────────────────────────────────────────────
+// Both drag engines (interact.js task/block drags, and the raw-pointer outlook
+// card drag) route through this. Given a pointer position and a drag context it
+// updates the live preview (Today block ghost, outlook insertion ghost, or
+// berth ghost) and, on drop, commits. All DOM reads go through the hit-test
+// layer; all placement math through the placement layer.
 
-// Walk back grabOffsetMinutes of work-time from the cell under the pointer
-// to find where the task should start. Returns { date, startMinutes } or null.
-function resolveTaskStart(cell, grabOffsetMinutes, schedule) {
-  const pointerDate = new Date(cell.dataset.date + 'T00:00:00');
-  pointerDate.setMinutes(parseInt(cell.dataset.start, 10));
+// ctx: {
+//   getTaskId()            → task being dragged
+//   getGrabOffsetMinutes() → work-minutes between task start and the grab point
+//   sourceDateStr          → outlook day the card came from, or null
+//   dropOutsideUnschedules → show a berth ghost when hovering nothing droppable
+// }
+function makeDragCore(ctx) {
+  let lastCellKey     = null;
+  let lastOutlookDrop = null; // { dateStr, insertBeforeTaskId } | null
 
-  const taskStart = retreatWork(pointerDate, grabOffsetMinutes, schedule);
-  const totalMinutes = taskStart.getHours() * 60 + taskStart.getMinutes();
-  const snapped = Math.round(totalMinutes / SNAP_MINUTES) * SNAP_MINUTES;
-
-  const dateStr = toISODate(taskStart);
-  const day = getDaySchedule(taskStart, schedule);
-  if (!day) return null;
-
-  const clampedStart = Math.max(day.startMinutes, Math.min(snapped, day.endMinutes - SNAP_MINUTES));
-  return { date: dateStr, startMinutes: clampedStart };
-}
-
-// Compute preview blocks for a task dropped at a given Today cell.
-function computeBlocksForCell(task, cell, grabOffsetMinutes) {
-  const schedule = workSchedule.value;
-  const visibleDays = getVisibleWorkDays(schedule, 7);
-
-  const taskStart = grabOffsetMinutes > 0
-    ? resolveTaskStart(cell, grabOffsetMinutes, schedule)
-    : { date: cell.dataset.date, startMinutes: parseInt(cell.dataset.start, 10) };
-
-  if (!taskStart) return null;
-
-  const rem = schedulableMinutes(task);
-  let blocks = splitTaskAcrossDays(task.id, taskStart.date, taskStart.startMinutes, rem, visibleDays);
-  if (blocks === null) {
-    // taskStart resolved to before the visible window (grab offset retreated past
-    // today's start) — clamp to the earliest available slot, not the latest.
-    const first = visibleDays[0];
-    if (first && taskStart.date < toISODate(first.date)) {
-      blocks = splitTaskAcrossDays(task.id, toISODate(first.date), first.daySchedule.startMinutes, rem, visibleDays);
-    }
-  }
-  return blocks;
-}
-
-// ─── outlook drop logic ──────────────────────────────────────────────────────
-
-// Commit a drop onto an outlook day. Handles both cross-day moves and
-// drops from outside the outlook (sourceTaskId from task list / today planner).
-function commitOutlookDrop(movedTaskId, sourceDateStr, targetDateStr, insertBeforeTaskId) {
-  // Snapshot entries before any mutations
-  const dayEntries = tasks.value
-    .filter(t => !t.isCompleted && !t.isDeleted)
-    .flatMap(t => t.scheduledBlocks
-      .filter(b => b.date === targetDateStr)
-      .map(b => ({ task: t, block: b })))
-    .sort((a, b) => a.block.startMinutes - b.block.startMinutes);
-
-  // Unschedule from source if moving between days (or from today planner)
-  if (sourceDateStr !== targetDateStr) {
-    unscheduleTask(movedTaskId);
+  // Resolve the outlook target under the pointer into a normalized descriptor
+  // for computeOutlookInsertion: { dateStr, hoveredId, pos }.
+  function outlookTarget(x, y, dayEl) {
+    const dateStr = dayEl.dataset.outlookDay;
+    const card = outlookCardFromPoint(x, y, dayEl, ctx.getTaskId());
+    if (!card) return { dateStr, hoveredId: null, pos: null };
+    const rect = card.getBoundingClientRect();
+    return {
+      dateStr,
+      hoveredId: card.dataset.outlookTaskId,
+      pos: y < rect.top + rect.height / 2 ? 'before' : 'after'
+    };
   }
 
-  // Build ordered task list for the target day, including the moved task.
-  // Settle live timer time so a running task on this day packs at its true
-  // remaining, not its last-flushed elapsed.
-  let orderedTasks = dayEntries.map(e => withLiveElapsed(e.task)).filter(t => t.id !== movedTaskId);
-  const movedTask = getTask(movedTaskId);
-  if (!movedTask) return;
-
-  // Find insertion index based on insertBeforeTaskId
-  let newIndex;
-  if (insertBeforeTaskId === null) {
-    newIndex = orderedTasks.length; // append at end
-  } else {
-    newIndex = orderedTasks.findIndex(t => t.id === insertBeforeTaskId);
-    if (newIndex === -1) newIndex = orderedTasks.length;
-  }
-
-  orderedTasks.splice(newIndex, 0, movedTask);
-
-  const { blocks } = reorderAndBumpForward(
-    orderedTasks, movedTaskId, newIndex,
-    workSchedule.value, fixedBlocks.value, targetDateStr
-  );
-
-  for (const [taskId, block] of blocks) {
-    scheduleTask(taskId, [block]);
-  }
-}
-
-// ─── shared move/end handlers (Today planner + task list drags) ──────────────
-
-function makeDragHandlers({ getTaskId, getGrabOffsetMinutes, dropOutsideUnschedules = false }) {
-  let lastKey          = null;
-  let lastOutlookDrop  = null; // { dateStr, insertBeforeTaskId } — mirrors pendingDrop in draggableOutlookCard
-
-  function onMove(event) {
-    const { x, y } = event.client;
+  function onMove(x, y) {
     const cell = cellFromPoint(x, y);
 
+    // ── Over a Today-planner slot: preview the task's block ghost ──
     if (cell) {
-      // Over a Today planner slot
       const key = cellKey(cell);
-      if (key === lastKey) return;
-      lastKey = key;
+      if (key === lastCellKey) return;
+      lastCellKey     = key;
       lastOutlookDrop = null;
       setOutlookPreview(null);
       setBerthGhost(null);
-      const task = getTask(getTaskId());
-      if (task) setPreviewBlock(computeBlocksForCell(task, cell, getGrabOffsetMinutes()));
-    } else {
-      lastKey = null;
-      setPreviewBlock(null);
+      const task = getTask(ctx.getTaskId());
+      if (task) {
+        setPreviewBlock(computeBlocksForCell(task, cellDescriptor(cell), ctx.getGrabOffsetMinutes(), workSchedule.value));
+      }
+      return;
+    }
 
-      const dayEl = outlookDayFromPoint(x, y);
-      if (dayEl) {
-        setBerthGhost(null);
-        const dayDateStr = dayEl.dataset.outlookDay;
-        const card       = outlookCardFromPoint(x, y, dayEl, null);
+    lastCellKey = null;
+    setPreviewBlock(null);
 
-        if (card) {
-          const hoveredId = card.dataset.outlookTaskId;
+    // ── Over an outlook day: preview the insertion ghost ──
+    const dayEl = outlookDayFromPoint(x, y);
+    if (dayEl) {
+      setBerthGhost(null);
+      const target   = outlookTarget(x, y, dayEl);
+      const idsInDay = getEntriesForDay(target.dateStr);
+      const source   = ctx.sourceDateStr ? { dateStr: ctx.sourceDateStr, taskId: ctx.getTaskId() } : null;
+      const decision = computeOutlookInsertion(target, idsInDay, lastOutlookDrop, source);
 
-          // Same hysteresis as draggableOutlookCard: don't update if pointer is
-          // still within the gap the ghost already occupies.
-          if (lastOutlookDrop?.dateStr === dayDateStr) {
-            const idsInDay    = getEntriesForDay(dayDateStr);
-            const insertIdx   = lastOutlookDrop.insertBeforeTaskId === null
-              ? idsInDay.length
-              : idsInDay.indexOf(lastOutlookDrop.insertBeforeTaskId);
-            const gapBefore = idsInDay[insertIdx - 1] ?? null;
-            const gapAfter  = idsInDay[insertIdx]     ?? null;
-            if (hoveredId === gapBefore || hoveredId === gapAfter) return;
-          }
-
-          const rect = card.getBoundingClientRect();
-          const pos  = y < rect.top + rect.height / 2 ? 'before' : 'after';
-          const idsInDay  = getEntriesForDay(dayDateStr);
-          const targetIdx = idsInDay.indexOf(hoveredId);
-          const insertBeforeTaskId = pos === 'before'
-            ? (idsInDay[targetIdx] ?? null)
-            : (idsInDay[targetIdx + 1] ?? null);
-
-          lastOutlookDrop = { dateStr: dayDateStr, insertBeforeTaskId };
-          setOutlookPreview({ dateStr: dayDateStr, insertBeforeTaskId, ghostTaskId: getTaskId() });
-        } else {
-          // Empty day area — append at end
-          lastOutlookDrop = { dateStr: dayDateStr, insertBeforeTaskId: null };
-          setOutlookPreview({ dateStr: dayDateStr, insertBeforeTaskId: null, ghostTaskId: getTaskId() });
-        }
-      } else {
+      if (decision.action === 'keep') return;
+      if (decision.action === 'clear') {
         lastOutlookDrop = null;
         setOutlookPreview(null);
-        setBerthGhost(dropOutsideUnschedules ? getTaskId() : null);
+        return;
       }
+      lastOutlookDrop = { dateStr: target.dateStr, insertBeforeTaskId: decision.insertBeforeTaskId };
+      setOutlookPreview({ ...lastOutlookDrop, ghostTaskId: ctx.getTaskId() });
+      return;
     }
+
+    // ── Over nothing droppable ──
+    lastOutlookDrop = null;
+    setOutlookPreview(null);
+    setBerthGhost(ctx.dropOutsideUnschedules ? ctx.getTaskId() : null);
   }
 
-  function onEnd(event) {
-    lastKey         = null;
+  function onDrop(x, y) {
+    lastCellKey     = null;
     lastOutlookDrop = null;
-    const { x, y } = event.client;
     const cell = cellFromPoint(x, y);
 
     if (cell) {
-      const task = getTask(getTaskId());
+      const task = getTask(ctx.getTaskId());
       if (task) {
-        const blocks = computeBlocksForCell(task, cell, getGrabOffsetMinutes());
+        const blocks = computeBlocksForCell(task, cellDescriptor(cell), ctx.getGrabOffsetMinutes(), workSchedule.value);
         if (blocks !== null) scheduleTask(task.id, blocks);
       }
     } else {
       const dayEl = outlookDayFromPoint(x, y);
       if (dayEl) {
-        const task = getTask(getTaskId());
+        const task = getTask(ctx.getTaskId());
         if (task) {
-          const card = outlookCardFromPoint(x, y, dayEl, null);
-          commitOutlookDrop(task.id, null, dayEl.dataset.outlookDay, card?.dataset.outlookTaskId ?? null);
+          const card = outlookCardFromPoint(x, y, dayEl, ctx.getTaskId());
+          commitOutlookDrop(task.id, ctx.sourceDateStr, dayEl.dataset.outlookDay, card?.dataset.outlookTaskId ?? null);
         }
       }
     }
 
-    setPreviewBlock(null);
-    setOutlookPreview(null);
-    setBerthGhost(null);
+    clearPreviews();
     setDragState(null);
   }
 
-  return { onMove, onEnd };
+  return { onMove, onDrop };
 }
 
 // ─── draggableTask action ────────────────────────────────────────────────────
+// Task chips in the task list. No grab offset (drags from the chip origin) and
+// no source day (comes from outside the outlook).
 
 export function draggableTask(node, { taskId }) {
-  const handlers = makeDragHandlers({ getTaskId: () => taskId, getGrabOffsetMinutes: () => 0 });
+  const core = makeDragCore({
+    getTaskId: () => taskId,
+    getGrabOffsetMinutes: () => 0,
+    sourceDateStr: null
+  });
 
   interact(node).draggable({
     listeners: {
@@ -256,10 +158,10 @@ export function draggableTask(node, { taskId }) {
         setDragState({ type: 'task', taskId });
         startDragCursor();
       },
-      move: handlers.onMove,
+      move(event) { core.onMove(event.client.x, event.client.y); },
       end(event) {
         endDragCursor();
-        handlers.onEnd(event);
+        core.onDrop(event.client.x, event.client.y);
       }
     }
   });
@@ -271,10 +173,18 @@ export function draggableTask(node, { taskId }) {
 }
 
 // ─── draggableBlockVertical action ───────────────────────────────────────────
+// Scheduled blocks on the Today timeline. Grab offset is in work-minutes (split
+// blocks account for parts already elapsed on earlier days); dropping outside a
+// droppable target unschedules the task.
 
 export function draggableBlockVertical(node, { taskId, block }) {
   let grabOffsetMinutes = 0;
-  const handlers = makeDragHandlers({ getTaskId: () => taskId, getGrabOffsetMinutes: () => grabOffsetMinutes, dropOutsideUnschedules: true });
+  const core = makeDragCore({
+    getTaskId: () => taskId,
+    getGrabOffsetMinutes: () => grabOffsetMinutes,
+    sourceDateStr: null,
+    dropOutsideUnschedules: true
+  });
 
   interact(node).draggable({
     listeners: {
@@ -294,19 +204,18 @@ export function draggableBlockVertical(node, { taskId, block }) {
         setDragState({ type: 'block', taskId });
         startDragCursor();
       },
-      move: handlers.onMove,
+      move(event) { core.onMove(event.client.x, event.client.y); },
       end(event) {
         endDragCursor();
         const { x, y } = event.client;
+        // Dropped on nothing droppable → unschedule (berth ghost committed).
         if (!cellFromPoint(x, y) && !outlookDayFromPoint(x, y)) {
           unscheduleTask(taskId);
-          setPreviewBlock(null);
-          setOutlookPreview(null);
-          setBerthGhost(null);
+          clearPreviews();
           setDragState(null);
           return;
         }
-        handlers.onEnd(event);
+        core.onDrop(x, y);
       }
     }
   });
@@ -318,21 +227,10 @@ export function draggableBlockVertical(node, { taskId, block }) {
 }
 
 // ─── draggableFixedBlock action ──────────────────────────────────────────────
-// Fixed blocks live on a single day and never split — drag is confined to
-// Today planner cells on the same day, snapped to SNAP_MINUTES and clamped
-// to the work day. Manual placement is unrestricted (can overlap tasks or
-// other fixed blocks); only the auto-scheduler treats fixed blocks as obstacles.
-
-function resolveFixedBlockDrop(cell, grabOffsetMinutes, durationMinutes) {
-  const dateStr = cell.dataset.date;
-  const daySchedule = getDaySchedule(new Date(dateStr + 'T00:00:00'), workSchedule.value);
-  if (!daySchedule) return null;
-
-  const rawStart = parseInt(cell.dataset.start, 10) - grabOffsetMinutes;
-  const snapped = Math.round(rawStart / SNAP_MINUTES) * SNAP_MINUTES;
-  const clamped = Math.max(daySchedule.startMinutes, Math.min(snapped, daySchedule.endMinutes - durationMinutes));
-  return { date: dateStr, startMinutes: clamped };
-}
+// Fixed blocks live on a single day and never split — drag is confined to Today
+// planner cells, snapped and clamped to the work day. Manual placement is
+// unrestricted (can overlap tasks/other fixed blocks); only the auto-scheduler
+// treats fixed blocks as obstacles.
 
 export function draggableFixedBlock(node, { fixedBlockId, block }) {
   let grabOffsetMinutes = 0;
@@ -346,7 +244,7 @@ export function draggableFixedBlock(node, { fixedBlockId, block }) {
     if (key === lastKey) return;
     lastKey = key;
 
-    const drop = resolveFixedBlockDrop(cell, grabOffsetMinutes, block.durationMinutes);
+    const drop = resolveFixedBlockDrop(cellDescriptor(cell), grabOffsetMinutes, block.durationMinutes, workSchedule.value);
     if (!drop) { setPreviewBlock(null); return; }
 
     setPreviewBlock([{ date: drop.date, startMinutes: drop.startMinutes, durationMinutes: block.durationMinutes }]);
@@ -362,20 +260,15 @@ export function draggableFixedBlock(node, { fixedBlockId, block }) {
         setDragState({ type: 'fixedBlock', fixedBlockId });
         startDragCursor();
       },
-      move(event) {
-        previewFromPoint(event.client.x, event.client.y);
-      },
+      move(event) { previewFromPoint(event.client.x, event.client.y); },
       end(event) {
         endDragCursor();
         lastKey = null;
-        const { x, y } = event.client;
-        const cell = cellFromPoint(x, y);
-
+        const cell = cellFromPoint(event.client.x, event.client.y);
         if (cell) {
-          const drop = resolveFixedBlockDrop(cell, grabOffsetMinutes, block.durationMinutes);
+          const drop = resolveFixedBlockDrop(cellDescriptor(cell), grabOffsetMinutes, block.durationMinutes, workSchedule.value);
           if (drop) editFixedBlock(fixedBlockId, { date: drop.date, startMinutes: drop.startMinutes });
         }
-
         setPreviewBlock(null);
         setDragState(null);
       }
@@ -389,140 +282,40 @@ export function draggableFixedBlock(node, { fixedBlockId, block }) {
 }
 
 // ─── draggableOutlookCard action ─────────────────────────────────────────────
-// Used by OutlookSection cards. Handles reorder within/between outlook days
-// and cross-drop to Today planner.
+// Outlook backlog cards. Raw pointer events (rather than interact.js) so the
+// card can be dragged out of a scrolling list reliably. Reorders within/between
+// outlook days and cross-drops to the Today planner; shares the drag core, with
+// its own day as the reorder source so same-day no-ops are suppressed.
 
 export function draggableOutlookCard(node, { taskId, dateStr: initialDateStr }) {
   let dateStr = initialDateStr;
+  let pointerId = null;
 
-  let pointerId   = null;
-  let pendingDrop = null; // { targetDateStr, insertBeforeTaskId } | null
+  const core = makeDragCore({
+    getTaskId: () => taskId,
+    getGrabOffsetMinutes: () => 0,
+    get sourceDateStr() { return dateStr; }
+  });
 
   function onPointerDown(e) {
     if (e.target.closest('button')) return;
     e.stopPropagation();
     pointerId = e.pointerId;
-    pendingDrop = null;
     setDragState({ type: 'outlookCard', taskId });
-    document.documentElement.classList.add('dragging-active');
+    startDragCursor();
     node.setPointerCapture(e.pointerId);
   }
 
   function onPointerMove(e) {
     if (e.pointerId !== pointerId) return;
-
-    const { clientX: x, clientY: y } = e;
-
-    // Check Today planner first
-    const cell = cellFromPoint(x, y);
-    if (cell) {
-      pendingDrop = null;
-      setOutlookPreview(null);
-      const task = getTask(taskId);
-      if (task) {
-        const blocks = computeBlocksForCell(task, cell, 0);
-        setPreviewBlock(blocks);
-      }
-      return;
-    }
-
-    setPreviewBlock(null);
-
-    const dayEl = outlookDayFromPoint(x, y);
-    if (!dayEl) {
-      pendingDrop = null;
-      setOutlookPreview(null);
-      return;
-    }
-
-    const targetDateStr = dayEl.dataset.outlookDay;
-    const card = outlookCardFromPoint(x, y, dayEl, taskId);
-
-    if (card) {
-      const hoveredId = card.dataset.outlookTaskId;
-
-      // Hysteresis: if we already have a pending drop on this same day, only
-      // update if the pointer has entered a different card's territory. This
-      // prevents the ghost insertion shifting cards which shifts midpoints which
-      // flips pos which moves the ghost — the classic feedback loop.
-      if (pendingDrop?.targetDateStr === targetDateStr) {
-        const idsInDay = getEntriesForDay(targetDateStr);
-        const insertedBeforeId = pendingDrop.insertBeforeTaskId; // null = end
-        // The gap the ghost currently occupies is between the card just before
-        // insertedBeforeId and insertedBeforeId itself. The pointer is still in
-        // that gap if the hovered card is either of those two neighbours.
-        const insertIdx = insertedBeforeId === null
-          ? idsInDay.length
-          : idsInDay.indexOf(insertedBeforeId);
-        const gapBefore = idsInDay[insertIdx - 1] ?? null;
-        const gapAfter  = idsInDay[insertIdx]     ?? null;
-        if (hoveredId === gapBefore || hoveredId === gapAfter) {
-          // Still in the same gap — don't update, prevents oscillation
-          return;
-        }
-      }
-
-      // Pointer has entered a new card's territory — recompute insertion point
-      const rect = card.getBoundingClientRect();
-      const pos  = y < rect.top + rect.height / 2 ? 'before' : 'after';
-
-      const idsInDay  = getEntriesForDay(targetDateStr);
-      const targetIdx = idsInDay.indexOf(hoveredId);
-      const insertBeforeTaskId = pos === 'before'
-        ? (idsInDay[targetIdx] ?? null)
-        : (idsInDay[targetIdx + 1] ?? null);
-
-      // Suppress no-op for same-day reorders
-      if (targetDateStr === dateStr) {
-        const myIdx  = idsInDay.indexOf(taskId);
-        const afterMe = idsInDay[myIdx + 1] ?? null;
-        if (insertBeforeTaskId === taskId || insertBeforeTaskId === afterMe) {
-          pendingDrop = null;
-          setOutlookPreview(null);
-          return;
-        }
-      }
-
-      pendingDrop = { targetDateStr, insertBeforeTaskId };
-      setOutlookPreview({ dateStr: targetDateStr, insertBeforeTaskId, ghostTaskId: taskId });
-    } else {
-      // Over empty day area (no card under pointer in this day)
-      if (targetDateStr === dateStr) {
-        // Already on this day with no other card — no-op
-        pendingDrop = null;
-        setOutlookPreview(null);
-      } else {
-        pendingDrop = { targetDateStr, insertBeforeTaskId: null };
-        setOutlookPreview({ dateStr: targetDateStr, insertBeforeTaskId: null, ghostTaskId: taskId });
-      }
-    }
+    core.onMove(e.clientX, e.clientY);
   }
 
   function onPointerUp(e) {
     if (e.pointerId !== pointerId) return;
     pointerId = null;
-
-    document.documentElement.classList.remove('dragging-active');
-    setPreviewBlock(null);
-    setOutlookPreview(null);
-    setDragState(null);
-
-    const { clientX: x, clientY: y } = e;
-    const cell = cellFromPoint(x, y);
-
-    if (cell) {
-      // Drop onto Today planner
-      unscheduleTask(taskId);
-      const task = getTask(taskId);
-      if (task) {
-        const blocks = computeBlocksForCell(task, cell, 0);
-        if (blocks) scheduleTask(task.id, blocks);
-      }
-    } else if (pendingDrop) {
-      commitOutlookDrop(taskId, dateStr, pendingDrop.targetDateStr, pendingDrop.insertBeforeTaskId);
-    }
-
-    pendingDrop = null;
+    endDragCursor();
+    core.onDrop(e.clientX, e.clientY);
     node.releasePointerCapture(e.pointerId);
   }
 

@@ -1,4 +1,4 @@
-import { toISODate } from '../lib/calendar.js';
+import { toISODate, parseLocalDate } from '../lib/calendar.js';
 
 let _dragState      = $state(null);
 let _activeModal    = $state(null);
@@ -92,7 +92,7 @@ export function setPlannerDate(dateStr) {
 
 export function advancePlannerDay(schedule) {
   // Find next work day after current plannerDate
-  const cursor = new Date(_plannerDate + 'T00:00:00');
+  const cursor = parseLocalDate(_plannerDate);
   cursor.setDate(cursor.getDate() + 1);
   let safety = 0;
   while (safety++ < 14) {
@@ -108,7 +108,7 @@ export function advancePlannerDay(schedule) {
 
 export function retreatPlannerDay(schedule) {
   const todayStr = toISODate(new Date());
-  const cursor = new Date(_plannerDate + 'T00:00:00');
+  const cursor = parseLocalDate(_plannerDate);
   cursor.setDate(cursor.getDate() - 1);
   let safety = 0;
   while (safety++ < 14) {

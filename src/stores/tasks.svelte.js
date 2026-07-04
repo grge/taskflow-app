@@ -2,9 +2,10 @@ import { loadState, saveState } from '../lib/persistence.js';
 import { createTask, updateTask, remainingMinutes as remainingOf } from '../lib/tasks.js';
 import { placeBlockOnTask, removeBlocksForTask } from '../lib/scheduling.js';
 import { autoSchedule } from '../lib/scheduler.js';
+import { reorderAndBumpForward } from '../lib/outlook-scheduler.js';
 import { workSchedule, fixedBlocks } from './schedule.svelte.js';
 import { activeTimer, setActiveTimer } from './ui.svelte.js';
-import { getDaySchedule } from '../lib/calendar.js';
+import { getDaySchedule, parseLocalDate } from '../lib/calendar.js';
 import { SNAP_MINUTES } from '../lib/constants.js';
 
 const _initialState = loadState();
@@ -124,6 +125,59 @@ export function unscheduleTask(taskId) {
   );
 }
 
+// Commit an outlook-backlog drop: place `movedTaskId` at `insertBeforeTaskId`
+// within `targetDateStr`, then repack that day (respecting the resulting order)
+// and spill any overflow forward. `sourceDateStr` is the moved card's origin
+// day, or null when it came from outside the outlook (task list / Today).
+export function commitOutlookDrop(movedTaskId, sourceDateStr, targetDateStr, insertBeforeTaskId) {
+  // Snapshot the target day's entries before any mutation.
+  const dayEntries = _tasks
+    .filter(t => !t.isCompleted && !t.isDeleted)
+    .flatMap(t => t.scheduledBlocks
+      .filter(b => b.date === targetDateStr)
+      .map(b => ({ task: t, block: b })))
+    .sort((a, b) => a.block.startMinutes - b.block.startMinutes);
+
+  // Moving between days (or in from outside) frees the source placement first.
+  if (sourceDateStr !== targetDateStr) {
+    unscheduleTask(movedTaskId);
+  }
+
+  // Build the ordered task list for the target day, including the moved task.
+  // Settle live timer time so a running task packs at its true remaining.
+  const orderedTasks = dayEntries.map(e => withLiveElapsed(e.task)).filter(t => t.id !== movedTaskId);
+  const rawMoved = _tasks.find(t => t.id === movedTaskId);
+  if (!rawMoved) return;
+  const movedTask = withLiveElapsed(rawMoved);
+
+  let insertAt;
+  if (insertBeforeTaskId === null) {
+    insertAt = orderedTasks.length;
+  } else {
+    insertAt = orderedTasks.findIndex(t => t.id === insertBeforeTaskId);
+    if (insertAt === -1) insertAt = orderedTasks.length;
+  }
+  orderedTasks.splice(insertAt, 0, movedTask);
+
+  // Obstacles for packing/spill: fixed blocks, plus scheduled blocks of tasks
+  // NOT being repacked here (repacked tasks' own blocks are about to be
+  // rewritten, so they must not block themselves).
+  const repackedIds = new Set(orderedTasks.map(t => t.id));
+  const otherScheduledBlocks = _tasks
+    .filter(t => !t.isCompleted && !t.isDeleted && !repackedIds.has(t.id))
+    .flatMap(t => t.scheduledBlocks);
+  const occupiedBlocks = [...fixedBlocks.value, ...otherScheduledBlocks];
+
+  const { blocks } = reorderAndBumpForward(
+    orderedTasks, movedTaskId, insertAt,
+    workSchedule.value, occupiedBlocks, targetDateStr
+  );
+
+  for (const [taskId, block] of blocks) {
+    scheduleTask(taskId, [block]);
+  }
+}
+
 // ─── timer mutations ─────────────────────────────────────────────────────────
 
 export function liveSeconds(t) {
@@ -211,7 +265,7 @@ export function clearSchedule() {
 // placement. Predictable over clever: no partial trims, no re-packing.
 export function revalidateScheduleAfterHoursChange(schedule) {
   const blockFits = (b) => {
-    const day = getDaySchedule(new Date(b.date + 'T00:00:00'), schedule);
+    const day = getDaySchedule(parseLocalDate(b.date), schedule);
     return !!day && b.startMinutes >= day.startMinutes && b.startMinutes + b.durationMinutes <= day.endMinutes;
   };
 

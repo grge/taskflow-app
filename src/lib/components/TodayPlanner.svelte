@@ -3,16 +3,18 @@
   import { workSchedule, fixedBlocks, getFixedBlocksForDate, editFixedBlock, removeFixedBlock } from '../../stores/schedule.svelte.js';
   import { openModal, previewBlock, plannerDate, advancePlannerDay, retreatPlannerDay, resetPlannerToToday, dragState } from '../../stores/ui.svelte.js';
   import { clock } from '../../stores/clock.svelte.js';
-  import { getDaySchedule, toISODate, minutesToTimeString, formatDateLabel } from '../calendar.js';
+  import { getDaySchedule, toISODate, minutesToTimeString, formatDateLabel, parseLocalDate } from '../calendar.js';
   import { draggableBlockVertical, draggableFixedBlock } from '../dnd.js';
   import { pAt, pToColor } from '../envelope.js';
   import { blockDisplayMinutes } from '../tasks.js';
   import { layoutOverlapsOnDay } from '../scheduling.js';
+  import { formatDuration } from '../format.js';
+  import { createInlineEdit } from '../inline-edit.svelte.js';
   import LockIcon from './LockIcon.svelte';
 
   let todayStr    = $derived(clock.today);
   let viewDateStr = $derived(plannerDate.value);
-  let viewDate    = $derived(new Date(viewDateStr + 'T00:00:00'));
+  let viewDate    = $derived(parseLocalDate(viewDateStr));
   let daySchedule = $derived(getDaySchedule(viewDate, workSchedule.value));
   let isToday     = $derived(viewDateStr === todayStr);
 
@@ -107,45 +109,10 @@
     return pToColor(pAt(task, clock.minute));
   }
 
-  let editingBlockId    = $state(null);
-  let editingBlockLabel = $state('');
-
-  let editingTaskId    = $state(null);
-  let editingTaskLabel = $state('');
-
-  function startTaskLabelEdit(task) {
-    editingTaskId    = task.id;
-    editingTaskLabel = task.description;
-  }
-
-  function commitTaskLabelEdit() {
-    if (editingTaskId && editingTaskLabel.trim()) {
-      editTask(editingTaskId, { description: editingTaskLabel.trim() });
-    }
-    editingTaskId = null;
-  }
-
-  function onTaskLabelKeydown(e) {
-    if (e.key === 'Enter') commitTaskLabelEdit();
-    if (e.key === 'Escape') editingTaskId = null;
-  }
-
-  function startBlockLabelEdit(fb) {
-    editingBlockId    = fb.id;
-    editingBlockLabel = fb.label;
-  }
-
-  function commitBlockLabelEdit() {
-    if (editingBlockId && editingBlockLabel.trim()) {
-      editFixedBlock(editingBlockId, { label: editingBlockLabel.trim() });
-    }
-    editingBlockId = null;
-  }
-
-  function onBlockLabelKeydown(e) {
-    if (e.key === 'Enter') commitBlockLabelEdit();
-    if (e.key === 'Escape') editingBlockId = null;
-  }
+  // Two independent double-click-to-rename controllers: task blocks (edits the
+  // task's description) and fixed blocks (edits the block's label).
+  const taskRename  = createInlineEdit((id, value) => editTask(id, { description: value }));
+  const blockRename = createInlineEdit((id, value) => editFixedBlock(id, { label: value }));
 </script>
 
 <div class="today-planner">
@@ -207,20 +174,20 @@
             style="top:{toPct(fb.startMinutes)}%; height:{heightPct(fb.durationMinutes)}%; {overlapStyle('fixed', fb.id)}"
             use:draggableFixedBlock={{ fixedBlockId: fb.id, block: fb }}
           >
-            {#if editingBlockId === fb.id}
+            {#if blockRename.isEditing(fb.id)}
               <!-- svelte-ignore a11y_autofocus -->
               <input
                 class="fixed-label-input"
-                bind:value={editingBlockLabel}
-                onblur={commitBlockLabelEdit}
-                onkeydown={onBlockLabelKeydown}
+                bind:value={blockRename.draft}
+                onblur={blockRename.commit}
+                onkeydown={blockRename.onKeydown}
                 onclick={(e) => e.stopPropagation()}
                 autofocus
               />
             {:else}
               <span
                 class="fixed-label"
-                ondblclick={(e) => { e.stopPropagation(); startBlockLabelEdit(fb); }}
+                ondblclick={(e) => { e.stopPropagation(); blockRename.start(fb.id, fb.label); }}
                 title="Double-click to rename"
               >{fb.label}</span>
             {/if}
@@ -241,13 +208,13 @@
           >
             <div class="block-accent" style="background:{color}"></div>
             <div class="block-content">
-              {#if editingTaskId === task.id}
+              {#if taskRename.isEditing(task.id)}
                 <!-- svelte-ignore a11y_autofocus -->
                 <input
                   class="block-name-input"
-                  bind:value={editingTaskLabel}
-                  onblur={commitTaskLabelEdit}
-                  onkeydown={onTaskLabelKeydown}
+                  bind:value={taskRename.draft}
+                  onblur={taskRename.commit}
+                  onkeydown={taskRename.onKeydown}
                   onclick={(e) => e.stopPropagation()}
                   autofocus
                 />
@@ -255,12 +222,11 @@
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div
                   class="block-name"
-                  ondblclick={(e) => { e.stopPropagation(); startTaskLabelEdit(task); }}
+                  ondblclick={(e) => { e.stopPropagation(); taskRename.start(task.id, task.description); }}
                 >{task.description}</div>
               {/if}
               {#if block.durationMinutes >= 45}
-                {@const labelMin = blockDisplayMinutes(task, block)}
-                <div class="block-time">{minutesToTimeString(block.startMinutes)} · {labelMin >= 60 ? `${(labelMin/60).toFixed(labelMin % 60 === 0 ? 0 : 1)}h` : `${labelMin}m`}</div>
+                <div class="block-time">{minutesToTimeString(block.startMinutes)} · {formatDuration(blockDisplayMinutes(task, block))}</div>
               {/if}
             </div>
             <button

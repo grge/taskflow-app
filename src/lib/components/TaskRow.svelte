@@ -2,10 +2,12 @@
   import { editTask, deleteTask, completeTask, unscheduleTask, toggleLock, setRemaining, startTimer, pauseTimer, resumeTimer, finishTimer, liveSeconds } from '../../stores/tasks.svelte.js';
   import { setExpandedTask, expandedTaskId, activeTimer, berthGhost, dragState } from '../../stores/ui.svelte.js';
   import { draggableTask } from '../dnd.js';
-  import { minutesToTimeString, toISODate } from '../calendar.js';
+  import { minutesToTimeString, toISODate, parseLocalDate } from '../calendar.js';
   import { clock } from '../../stores/clock.svelte.js';
   import { pAt, pToColor, getPressureTier } from '../envelope.js';
   import { remainingMinutes } from '../tasks.js';
+  import { formatDuration, formatHoursMinutes, formatClock, peaksLabel } from '../format.js';
+  import { createInlineEdit } from '../inline-edit.svelte.js';
   import EnvelopeEditor from './EnvelopeEditor.svelte';
   import LockIcon from './LockIcon.svelte';
 
@@ -24,8 +26,7 @@
   let pressureTier    = $derived(getPressureTier(currentPressure));
   let pillColor       = $derived(pToColor(currentPressure));
 
-  let editValue     = $state(task.description);
-  let isEditingDesc = $state(false);
+  const rename = createInlineEdit((id, value) => editTask(id, { description: value }));
 
   let totalElapsedSeconds = $derived((() => {
     const t = activeTimer.value;
@@ -48,38 +49,12 @@
     return total > 0 ? Math.min(1, totalElapsedSeconds / total) : 0;
   })());
 
-  // Minutes → "1h 11m" / "45m" / "1h" (hours+minutes, no decimals). Used in the
-  // expanded stat panels where "1h 11m" reads clearer than "1.2h".
-  function formatHM(mins) {
-    const m = Math.round(mins);
-    const h = Math.floor(m / 60);
-    const rem = m % 60;
-    if (h === 0) return `${rem}m`;
-    return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
-  }
-
-  function formatDuration(mins) {
-    if (mins >= 60 && mins % 60 === 0) return `${mins / 60}h`;
-    if (mins >= 60) return `${(mins / 60).toFixed(1)}h`;
-    return `${mins}m`;
-  }
-
   // True once remaining has diverged from the plain estimate — i.e. work has
   // been logged or the user set a manual override. Drives "X left" vs "est X".
   let hasProgress    = $derived(totalElapsedSeconds > 0 || task.remainingOverride != null);
   let remainingLabel = $derived(
     hasProgress ? `${formatDuration(remainMinutes)} left` : `est ${formatDuration(task.estimatedMinutes)}`
   );
-
-  function formatClock(seconds) {
-    const total = Math.floor(seconds);
-    const h = Math.floor(total / 3600);
-    const m = Math.floor(total / 60) % 60;
-    const s = total % 60;
-    const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
-    const ss = String(s).padStart(2, '0');
-    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-  }
 
   function firstScheduledBadge(blocks) {
     if (!blocks.length) return null;
@@ -89,35 +64,8 @@
     const b = sorted[0];
     const today = toISODate(new Date());
     if (b.date === today) return minutesToTimeString(b.startMinutes);
-    const d = new Date(b.date + 'T00:00:00');
+    const d = parseLocalDate(b.date);
     return d.toLocaleDateString('en-US', { weekday: 'short' });
-  }
-
-  function peaksLabel(peak) {
-    const d = peak instanceof Date ? peak : new Date(peak);
-    const today = new Date();
-    const diffDays = Math.round((d.setHours(0,0,0,0) - new Date(today).setHours(0,0,0,0)) / 86_400_000);
-    if (diffDays <= 0) return 'today';
-    if (diffDays === 1) return 'tomorrow';
-    if (diffDays <= 6) return d.toLocaleDateString('en-US', { weekday: 'long' });
-    return 'next week';
-  }
-
-  function startEdit() {
-    editValue = task.description;
-    isEditingDesc = true;
-  }
-
-  function commitEdit() {
-    if (editValue.trim() && editValue !== task.description) {
-      editTask(task.id, { description: editValue.trim() });
-    }
-    isEditingDesc = false;
-  }
-
-  function onDescKeydown(e) {
-    if (e.key === 'Enter') commitEdit();
-    if (e.key === 'Escape') isEditingDesc = false;
   }
 
   function handleEnvelopeChange({ onset, peak, peakPressure }) {
@@ -159,13 +107,13 @@
     <!-- Description + sub-line -->
     <div class="task-main">
       <div class="task-title-row">
-        {#if isEditingDesc}
+        {#if rename.isEditing(task.id)}
           <!-- svelte-ignore a11y_autofocus -->
           <input
             class="desc-input"
-            bind:value={editValue}
-            onblur={commitEdit}
-            onkeydown={onDescKeydown}
+            bind:value={rename.draft}
+            onblur={rename.commit}
+            onkeydown={rename.onKeydown}
             onclick={(e) => e.stopPropagation()}
             autofocus
           />
@@ -175,7 +123,7 @@
             class="task-desc"
             title={task.description}
             onclick={(e) => e.stopPropagation()}
-            ondblclick={(e) => { e.stopPropagation(); startEdit(); }}
+            ondblclick={(e) => { e.stopPropagation(); rename.start(task.id, task.description); }}
           >{task.description}</span>
         {/if}
         {#if isTimerRunning && !isTimerPaused}
@@ -275,7 +223,7 @@
       <div class="stat-row" onclick={(e) => e.stopPropagation()}>
         <div class="stat-panel">
           <span class="stat-label">Elapsed</span>
-          <span class="stat-value">{formatHM(totalElapsedSeconds / 60)}</span>
+          <span class="stat-value">{formatHoursMinutes(totalElapsedSeconds / 60)}</span>
         </div>
 
         <div class="stat-panel stat-panel-left">
@@ -283,7 +231,7 @@
           <div class="stat-stepper">
             <button class="stepper-btn" title="Less time left"
               onclick={(e) => { e.stopPropagation(); stepRemaining(-1); }}>−</button>
-            <span class="stat-value">{formatHM(remainMinutes)}</span>
+            <span class="stat-value">{formatHoursMinutes(remainMinutes)}</span>
             <button class="stepper-btn" title="More time left"
               onclick={(e) => { e.stopPropagation(); stepRemaining(1); }}>＋</button>
           </div>
@@ -291,7 +239,7 @@
 
         <div class="stat-panel">
           <span class="stat-label">Estimate</span>
-          <span class="stat-value">{formatHM(task.estimatedMinutes)}</span>
+          <span class="stat-value">{formatHoursMinutes(task.estimatedMinutes)}</span>
         </div>
       </div>
 
@@ -730,18 +678,6 @@
     border-top: 1px solid var(--color-border-light);
   }
 
-  .desc-input {
-    width: 100%;
-    font-size: 15px;
-    font-weight: 500;
-    border: none;
-    border-bottom: 2px solid var(--color-text-muted);
-    background: transparent;
-    outline: none;
-    padding: 0;
-    color: var(--color-text);
-  }
-
   /* ── 3-panel stat row (Elapsed | Left | Estimate) ──
      One unified control: a single rounded container with the three sections
      divided by thin internal borders, not separate cards with gaps. */
@@ -784,9 +720,9 @@
   .stat-value {
     font-size: 19px;
     font-weight: 600;
-    color: var(--color-text);
     font-variant-numeric: tabular-nums;
     line-height: 1.1;
+    /* color is set per-panel below: muted default, full-color for the Left panel */
   }
 
   .stat-panel .stat-value { color: var(--color-text-muted); }

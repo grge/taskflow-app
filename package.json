@@ -15,7 +15,6 @@
     "vite": "^6.3.5"
   },
   "dependencies": {
-    "interactjs": "^1.10.27",
-    "luxon": "^3.7.1"
+    "interactjs": "^1.10.27"
   }
 }

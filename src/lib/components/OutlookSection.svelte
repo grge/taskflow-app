@@ -5,14 +5,16 @@
   import { clock } from '../../stores/clock.svelte.js';
   import { pAt, pToColor } from '../envelope.js';
   import { remainingMinutes, blockDisplayMinutes } from '../tasks.js';
-  import { getVisibleWorkDays, toISODate, formatDateLabel } from '../calendar.js';
+  import { getVisibleWorkDays, toISODate, formatDateLabel, parseLocalDate } from '../calendar.js';
   import { draggableOutlookCard } from '../dnd.js';
+  import { formatDuration } from '../format.js';
+  import { createInlineEdit } from '../inline-edit.svelte.js';
   import LockIcon from './LockIcon.svelte';
 
   // All work days after the currently-viewed planner day, up to one day past the last scheduled task
   let outlookDays = $derived((() => {
     const viewStr     = plannerDate.value;
-    const viewDateObj = new Date(viewStr + 'T00:00:00');
+    const viewDateObj = parseLocalDate(viewStr);
     const visibleDays = getVisibleWorkDays(workSchedule.value, 14, viewDateObj);
     const futureDays  = visibleDays.filter(({ date }) => toISODate(date) > viewStr);
 
@@ -48,36 +50,12 @@
   })());
 
   function pressureAtBlock(task, block) {
-    const completionMs = new Date(block.date + 'T00:00:00').getTime()
+    const completionMs = parseLocalDate(block.date).getTime()
       + (block.startMinutes + block.durationMinutes) * 60_000;
     return pAt(task, completionMs);
   }
 
-  function formatDuration(mins) {
-    if (mins >= 60 && mins % 60 === 0) return `${mins / 60}h`;
-    if (mins >= 60) return `${(mins / 60).toFixed(1)}h`;
-    return `${mins}m`;
-  }
-
-  let editingTaskId    = $state(null);
-  let editingTaskLabel = $state('');
-
-  function startEdit(task) {
-    editingTaskId    = task.id;
-    editingTaskLabel = task.description;
-  }
-
-  function commitEdit() {
-    if (editingTaskId && editingTaskLabel.trim()) {
-      editTask(editingTaskId, { description: editingTaskLabel.trim() });
-    }
-    editingTaskId = null;
-  }
-
-  function onKeydown(e) {
-    if (e.key === 'Enter') commitEdit();
-    if (e.key === 'Escape') editingTaskId = null;
-  }
+  const rename = createInlineEdit((id, value) => editTask(id, { description: value }));
 </script>
 
 <div class="outlook-section">
@@ -121,13 +99,13 @@
             >
               <div class="card-accent" style="background:{color}"></div>
               <div class="card-body">
-                {#if editingTaskId === task.id}
+                {#if rename.isEditing(task.id)}
                   <!-- svelte-ignore a11y_autofocus -->
                   <input
                     class="card-desc-input"
-                    bind:value={editingTaskLabel}
-                    onblur={commitEdit}
-                    onkeydown={onKeydown}
+                    bind:value={rename.draft}
+                    onblur={rename.commit}
+                    onkeydown={rename.onKeydown}
                     onclick={(e) => e.stopPropagation()}
                     autofocus
                   />
@@ -136,7 +114,7 @@
                   <span
                     class="card-desc"
                     onclick={(e) => e.stopPropagation()}
-                    ondblclick={(e) => { e.stopPropagation(); startEdit(task); }}
+                    ondblclick={(e) => { e.stopPropagation(); rename.start(task.id, task.description); }}
                   >{task.description}</span>
                 {/if}
                 <span class="card-duration">{formatDuration(blockDisplayMinutes(task, block))}</span>
