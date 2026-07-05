@@ -1,12 +1,12 @@
 <script>
-  import { editTask, deleteTask, completeTask, unscheduleTask, toggleLock, setRemaining, startTimer, pauseTimer, resumeTimer, finishTimer, liveSeconds } from '../../stores/tasks.svelte.js';
+  import { editTask, deleteTask, completeTask, unscheduleTask, toggleLock, setRemaining, setElapsed, startTimer, pauseTimer, resumeTimer, finishTimer, liveSeconds } from '../../stores/tasks.svelte.js';
   import { setExpandedTask, expandedTaskId, activeTimer, berthGhost, dragState } from '../../stores/ui.svelte.js';
   import { draggableTask } from '../dnd.js';
   import { minutesToTimeString, toISODate, parseLocalDate } from '../calendar.js';
   import { clock } from '../../stores/clock.svelte.js';
   import { pAt, pToColor, getPressureTier } from '../envelope.js';
   import { remainingMinutes } from '../tasks.js';
-  import { formatDuration, formatHoursMinutes, formatClock, peaksLabel } from '../format.js';
+  import { formatDuration, formatHoursMinutes, formatClock, peaksLabel, parseDuration } from '../format.js';
   import { createInlineEdit } from '../inline-edit.svelte.js';
   import EnvelopeEditor from './EnvelopeEditor.svelte';
   import LockIcon from './LockIcon.svelte';
@@ -27,6 +27,13 @@
   let pillColor       = $derived(pToColor(currentPressure));
 
   const rename = createInlineEdit((id, value) => editTask(id, { description: value }));
+
+  // Click-to-edit for logged elapsed time. Parses "1h 47m" / "1:47" / "90m";
+  // ignores unparseable input (commit is a no-op, leaving the value unchanged).
+  const editElapsed = createInlineEdit((id, value) => {
+    const mins = parseDuration(value);
+    if (mins != null) setElapsed(id, mins * 60);
+  });
 
   let totalElapsedSeconds = $derived((() => {
     const t = activeTimer.value;
@@ -223,7 +230,23 @@
       <div class="stat-row" onclick={(e) => e.stopPropagation()}>
         <div class="stat-panel">
           <span class="stat-label">Elapsed</span>
-          <span class="stat-value">{formatHoursMinutes(totalElapsedSeconds / 60)}</span>
+          {#if editElapsed.isEditing(task.id)}
+            <!-- svelte-ignore a11y_autofocus -->
+            <input
+              class="inline-edit elapsed-input"
+              bind:value={editElapsed.draft}
+              onblur={editElapsed.commit}
+              onkeydown={editElapsed.onKeydown}
+              autofocus
+            />
+          {:else}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span
+              class="stat-value stat-value-editable"
+              title="Click to edit logged time"
+              onclick={() => editElapsed.start(task.id, formatHoursMinutes(totalElapsedSeconds / 60))}
+            >{formatHoursMinutes(totalElapsedSeconds / 60)}</span>
+          {/if}
         </div>
 
         <div class="stat-panel stat-panel-left">
@@ -697,6 +720,22 @@
   }
 
   .stat-panel .stat-value { color: var(--color-text-muted); }
+
+  /* Editable Elapsed value: hint it's clickable, matching the .task-desc cue. */
+  .stat-value-editable { cursor: text; }
+  .stat-value-editable:hover { color: var(--color-text); }
+
+  /* .inline-edit provides the transparent/underline base; size to the stat value. */
+  .elapsed-input {
+    width: 100%;
+    text-align: center;
+    font-size: var(--text-xl);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    color: var(--color-text);
+  }
+
   .stat-panel-left .stat-label { color: var(--color-success); }
   .stat-panel-left .stat-value { color: var(--color-text); font-weight: 700; min-width: 44px; text-align: center; }
 

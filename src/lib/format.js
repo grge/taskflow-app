@@ -20,6 +20,36 @@ export function formatHoursMinutes(mins) {
   return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
 }
 
+// Parse a human-typed duration into minutes, or null if unparseable/negative.
+// Accepts "1h 47m", "1h", "47m", "90", a bare "1:47" (h:m) or "1:47:30" (h:m:s),
+// and a lone decimal-hour like "1.5h". Whitespace and case are ignored.
+export function parseDuration(input) {
+  const s = String(input).trim().toLowerCase();
+  if (!s) return null;
+
+  // Clock form: "h:m" or "h:m:s".
+  if (s.includes(':')) {
+    const parts = s.split(':').map(p => p.trim());
+    if (parts.length < 2 || parts.length > 3) return null;
+    const nums = parts.map(Number);
+    if (nums.some(n => !Number.isFinite(n) || n < 0)) return null;
+    const [h, m, sec = 0] = nums;
+    return Math.round(h * 60 + m + sec / 60);
+  }
+
+  // Unit form: any mix of "<n>h" and "<n>m" tokens, e.g. "1h 47m", "1.5h", "90m".
+  const unit = [...s.matchAll(/(\d+(?:\.\d+)?)\s*([hm])/g)];
+  if (unit.length) {
+    let mins = 0;
+    for (const [, n, u] of unit) mins += u === 'h' ? Number(n) * 60 : Number(n);
+    return Math.round(mins);
+  }
+
+  // Bare number → minutes.
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
+
 // Seconds → running-clock display: "45" / "4:05" / "1:04:05". Hours appear only
 // once needed, and the minute field zero-pads only when hours are shown.
 export function formatClock(seconds) {

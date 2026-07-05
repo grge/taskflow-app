@@ -107,6 +107,24 @@ export function setRemaining(taskId, minutes) {
   });
 }
 
+// Manually correct logged elapsed time. Writes the task's elapsedSeconds and,
+// if a timer is live for it, rebases the timer so its running clock continues
+// from the edited value (mirrors pauseTimer's flush). The remainingOverride is
+// left untouched: with no override, remaining = estimate − elapsed recomputes
+// naturally, so bumping elapsed lowers "Left"; with one, its anchor holds.
+export function setElapsed(taskId, seconds) {
+  const total = Math.max(0, Math.round(seconds));
+  _tasks = _tasks.map(t => t.id === taskId ? { ...t, elapsedSeconds: total } : t);
+  const timer = activeTimer.value;
+  if (timer?.taskId === taskId) {
+    setActiveTimer({
+      taskId,
+      startedAt: timer.startedAt ? new Date() : null,
+      baseSeconds: total
+    });
+  }
+}
+
 export function restoreTask(taskId) {
   _tasks = _tasks.map(t =>
     t.id === taskId ? { ...t, isCompleted: false, completedAt: null } : t
