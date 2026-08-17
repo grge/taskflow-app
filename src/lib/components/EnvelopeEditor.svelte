@@ -1,20 +1,52 @@
 <script>
+  import { untrack } from 'svelte';
   import { clock } from '../../stores/clock.svelte.js';
-  import { pToColor } from '../envelope.js';
-  import { parseLocalDate } from '../calendar.js';
+  import { pToColor, getPressureTier } from '../envelope.js';
+  import { parseLocalDate, toISODate, minutesToTimeString } from '../calendar.js';
+  import { ENVELOPE_COLOR_STOPS } from '../constants.js';
 
   // showNowBadge: the in-chart "now Low · 0%" readout. Hidden where the caller
   // surfaces the current pressure elsewhere (e.g. the expanded task panel header).
   let { task, onchange, showNowBadge = true } = $props();
 
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const VIEW_DAYS = 7;
+  const DAY_MS  = 24 * 60 * 60 * 1000;
+  const HOUR_MS = 60 * 60 * 1000;
 
-  // Default view: today midnight → +7 days. Mutable so pan/zoom work.
-  function defaultStart() { return parseLocalDate(clock.today).getTime(); }
+  const MIN_SPAN      = 6 * HOUR_MS; // 6 hours
+  const BASE_MAX_SPAN = 28 * DAY_MS; // 4 weeks
 
-  let viewStartMs = $state(defaultStart());
-  let viewEndMs   = $state(defaultStart() + VIEW_DAYS * DAY_MS);
+  let todayMidnightMs = $derived(parseLocalDate(clock.today).getTime());
+
+  // The window that frames this task: onset→peak plus padding, always widened to
+  // include today so the "now" line stays on screen. Tasks whose envelope sits
+  // outside a fixed 7-day window used to open on an empty chart with both
+  // handles gated off-screen and no way back short of blind panning.
+  function fitRange() {
+    const todayMs = parseLocalDate(clock.today).getTime();
+    let lo = Math.min(todayMs, task.onset.getTime());
+    let hi = Math.max(todayMs + DAY_MS, task.peak.getTime());
+
+    const pad = Math.max(0.25 * DAY_MS, (hi - lo) * 0.12);
+    lo -= pad;
+    hi += pad;
+
+    if (hi - lo < MIN_SPAN) {
+      const mid = (lo + hi) / 2;
+      lo = mid - MIN_SPAN / 2;
+      hi = mid + MIN_SPAN / 2;
+    }
+    return { lo, hi };
+  }
+
+  const initialView = fitRange();
+  let viewStartMs = $state(initialView.lo);
+  let viewEndMs   = $state(initialView.hi);
+
+  // Zooming out must always be able to reach the whole envelope, however distant.
+  let maxSpan = $derived(Math.max(BASE_MAX_SPAN, (() => {
+    const { lo, hi } = fitRange();
+    return (hi - lo) * 1.5;
+  })()));
 
   // Unclamped fraction — values outside [0,1] mean off-screen
   function toFracX(ms) {
@@ -35,7 +67,25 @@
   }
 
   // SVG coordinate system: viewBox 0 0 100 100, y=12 at top, y=88 at bottom
-  function yc(x) { return 12 + (1 - prob(x)) * 76; }
+  const PLOT_TOP = 12, PLOT_H = 76;
+  function yForP(p) { return PLOT_TOP + (1 - p) * PLOT_H; }
+  function yc(x) { return yForP(prob(x)); }
+
+  // Fill and stroke colour track pressure, i.e. the y axis. The gradient used to
+  // run left→right, so the same curve recoloured as you panned. userSpaceOnUse
+  // pins it to the plot area rather than each path's own bounding box, so a low
+  // curve stays green instead of stretching the whole scale over its own height.
+  // Offsets are 1 - p because SVG y grows downward from the p=1 edge.
+  let gradStops = $derived(
+    [...ENVELOPE_COLOR_STOPS]
+      .sort((a, b) => b.p - a.p)
+      .map(s => ({ offset: 1 - s.p, color: s.color }))
+  );
+
+  // Unique per instance — the widget renders in two places and a fixed id would
+  // put duplicate ids in the document.
+  const uid = $props.id();
+  const gradId = `env-grad-${uid}`;
 
   // Build SVG paths (N=60 points)
   let paths = $derived((() => {
@@ -75,64 +125,128 @@
     u = Math.max(0, Math.min(1, u));
     return task.peakPressure * (u * u * (3 - 2 * u));
   })());
+  // Read off the app-wide scale, same as the pill in the expanded task panel.
+  // A local 4-tier copy used to live here with its own thresholds and colours,
+  // and no Critical band at all — a 95% task reported "High".
+  let nowTier  = $derived(getPressureTier(nowPressure));
   let nowColor = $derived(pToColor(nowPressure));
 
-  // Adaptive tick interval: aim for ~5-8 ticks regardless of zoom level
-  let dayLabels = $derived((() => {
-    const todayMs = parseLocalDate(clock.today).getTime();
-    const span = viewEndMs - viewStartMs;
-    const labels = [];
+  // ── Time axis ───────────────────────────────────────────────────────────────
+  // Everything below anchors to LOCAL midnight. Snapping in raw epoch ms (as this
+  // did) aligns to UTC, which offsets every day tick from the real day boundary
+  // and makes the exact-equality "Today" test unsatisfiable outside UTC.
 
-    // Pick a tick interval that gives roughly 5-8 ticks
-    const HOUR_MS = 3600 * 1000;
-    const candidates = [
-      2 * HOUR_MS, 4 * HOUR_MS, 6 * HOUR_MS, 12 * HOUR_MS,
-      DAY_MS, 2 * DAY_MS, 3 * DAY_MS, 7 * DAY_MS, 14 * DAY_MS
-    ];
-    const tickInterval = candidates.find(c => span / c <= 8) ?? 14 * DAY_MS;
-
-    // Snap first tick to a clean multiple of the interval
-    const firstTick = Math.ceil(viewStartMs / tickInterval) * tickInterval;
-    for (let ms = firstTick; ms <= viewEndMs; ms += tickInterval) {
-      const left = ((ms - viewStartMs) / span) * 100;
-      const d = new Date(ms);
-      let label;
-      if (ms === todayMs) {
-        label = 'Today';
-      } else if (tickInterval < DAY_MS) {
-        // Sub-day ticks: show time
-        label = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      } else if (tickInterval === DAY_MS) {
-        label = d.toLocaleDateString('en-US', { weekday: 'short' });
-      } else {
-        // Multi-day: show weekday + date
-        label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-      }
-      labels.push({ label, left });
+  // Local midnights spanning the view, plus one past each edge so partially
+  // visible days still yield a full band. Stepped with setDate, not +DAY_MS, so
+  // DST transitions don't drift the boundaries by an hour.
+  function localMidnights(startMs, endMs) {
+    const out = [];
+    const d = new Date(startMs);
+    d.setHours(0, 0, 0, 0);
+    let safety = 0;
+    while (d.getTime() <= endMs && safety++ < 64) {
+      out.push(new Date(d));
+      d.setDate(d.getDate() + 1);
     }
-    return labels;
+    out.push(new Date(d));
+    return out;
+  }
+
+  function dayTickLabel(d, stepDays) {
+    if (toISODate(d) === clock.today) return 'Today';
+    if (stepDays === 1) return d.toLocaleDateString('en-US', { weekday: 'short' });
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  // Alternating day shading, positioned from the view window so it pans and
+  // zooms with the data. (It was a fixed 1/7-of-the-element CSS gradient, so it
+  // stayed nailed to the box while the curve slid underneath it.)
+  let dayBands = $derived((() => {
+    const span = viewEndMs - viewStartMs;
+    if (span / DAY_MS > 45) return []; // too dense to read as bands
+    const mids = localMidnights(viewStartMs, viewEndMs);
+    const bands = [];
+    for (let i = 0; i < mids.length - 1; i++) {
+      const s = mids[i].getTime();
+      const e = mids[i + 1].getTime();
+      // Parity keyed to today's date, so bands keep their shading while panning
+      const dayIndex = Math.round((s - todayMidnightMs) / DAY_MS);
+      bands.push({
+        ms:      s,
+        left:    ((s - viewStartMs) / span) * 100,
+        width:   ((e - s) / span) * 100,
+        shaded:  (((dayIndex % 2) + 2) % 2) === 1,
+        isToday: toISODate(mids[i]) === clock.today
+      });
+    }
+    return bands;
   })());
 
-  // Blend a hex color toward the theme's card color for chip backgrounds
-  function chipBg(hex) {
-    const card = getComputedStyle(document.documentElement)
-      .getPropertyValue('--color-card').trim();
-    const parse = (h) => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
-    if (!card.startsWith('#') || card.length !== 7) return hex + '22';
-    const [cr,cg,cb] = parse(card);
-    const [hr,hg,hb] = parse(hex);
-    const mix = (c, base) => Math.round(c + (base - c) * 0.80);
-    return `rgb(${mix(hr,cr)},${mix(hg,cg)},${mix(hb,cb)})`;
-  }
+  const TICK_STEPS = [
+    { ms: 2 * HOUR_MS,  hours: 2 },
+    { ms: 4 * HOUR_MS,  hours: 4 },
+    { ms: 6 * HOUR_MS,  hours: 6 },
+    { ms: 12 * HOUR_MS, hours: 12 },
+    { ms: DAY_MS,       days: 1 },
+    { ms: 2 * DAY_MS,   days: 2 },
+    { ms: 3 * DAY_MS,   days: 3 },
+    { ms: 7 * DAY_MS,   days: 7 },
+    { ms: 14 * DAY_MS,  days: 14 }
+  ];
 
-  function pressureLabel(p) {
-    if (p < 0.22) return { label: 'Low',      color: '#6E8B63' };
-    if (p < 0.55) return { label: 'Building', color: '#C68A2E' };
-    if (p < 0.75) return { label: 'Elevated', color: '#EF5350' };
-    return { label: 'High', color: '#C8553C' };
-  }
+  // Adaptive tick interval: aim for ~5-8 ticks regardless of zoom level.
+  // Each tick carries its position so the gridline and its label share one source.
+  let ticks = $derived((() => {
+    const span = viewEndMs - viewStartMs;
+    const step = TICK_STEPS.find(c => span / c.ms <= 8) ?? TICK_STEPS[TICK_STEPS.length - 1];
+    const at = (ms) => ((ms - viewStartMs) / span) * 100;
+    const out = [];
 
-  let nowPressureInfo = $derived(pressureLabel(nowPressure));
+    if (step.days) {
+      const d = new Date(viewStartMs);
+      d.setHours(0, 0, 0, 0);
+      // Phase-lock the sequence to today so ticks hold still while panning
+      const dayIndex = Math.round((d.getTime() - todayMidnightMs) / DAY_MS);
+      const phase = (((dayIndex % step.days) + step.days) % step.days);
+      if (phase !== 0) d.setDate(d.getDate() + (step.days - phase));
+
+      let safety = 0;
+      while (d.getTime() <= viewEndMs && safety++ < 64) {
+        const ms = d.getTime();
+        if (ms >= viewStartMs) out.push({ ms, left: at(ms), label: dayTickLabel(d, step.days), major: true });
+        d.setDate(d.getDate() + step.days);
+      }
+    } else {
+      // Sub-day: step from each local midnight so ticks land on clean local hours
+      for (const midnight of localMidnights(viewStartMs, viewEndMs)) {
+        for (let h = 0; h < 24; h += step.hours) {
+          const t = new Date(midnight);
+          t.setHours(h, 0, 0, 0);
+          const ms = t.getTime();
+          if (ms < viewStartMs || ms > viewEndMs) continue;
+          out.push({
+            ms,
+            left:  at(ms),
+            label: h === 0 ? dayTickLabel(t, 1) : minutesToTimeString(h * 60),
+            major: h === 0
+          });
+        }
+      }
+    }
+    return out;
+  })());
+
+  // ── View fitting ────────────────────────────────────────────────────────────
+
+  let envelopeVisible = $derived(
+    task.onset.getTime() >= viewStartMs && task.peak.getTime() <= viewEndMs
+  );
+
+  function applyFit() {
+    const { lo, hi } = fitRange();
+    viewStartMs = lo;
+    viewEndMs   = hi;
+  }
 
   // ── Drag ────────────────────────────────────────────────────────────────────
 
@@ -199,26 +313,46 @@
     }
   }
 
+  // Also bound to pointercancel: an interrupted pointer (touch taken over by a
+  // scroll gesture, context menu, pen leaving range) fires no pointerup, which
+  // left `dragging` set — the next pointer move then kept dragging with nothing
+  // held down.
   function onPointerUp(e) {
     dragging = null;
-    chartEl?.releasePointerCapture(e.pointerId);
+    if (chartEl?.hasPointerCapture(e.pointerId)) chartEl.releasePointerCapture(e.pointerId);
   }
-
-  const MIN_SPAN = 6 * 3600 * 1000;  // 6 hours
-  const MAX_SPAN = 28 * DAY_MS;      // 4 weeks
 
   function onWheel(e) {
     e.preventDefault();
     if (!chartEl) return;
     const span   = viewEndMs - viewStartMs;
     const factor = e.deltaY > 0 ? 1.25 : 1 / 1.25;
-    const newSpan = Math.max(MIN_SPAN, Math.min(MAX_SPAN, span * factor));
+    const newSpan = Math.max(MIN_SPAN, Math.min(maxSpan, span * factor));
     const r = chartEl.getBoundingClientRect();
     const fx = (e.clientX - r.left) / r.width;
     const pivotMs = viewStartMs + fx * span;
     viewStartMs = pivotMs - fx * newSpan;
     viewEndMs   = pivotMs + (1 - fx) * newSpan;
   }
+
+  // Refit when the task changes identity, or when its envelope is edited from
+  // outside the chart (the modal's datetime fields) to somewhere off-screen.
+  // A view the user panned to deliberately is left alone as long as the envelope
+  // is still in it, and a live drag is never rescaled under the cursor.
+  let lastKey = null;
+
+  $effect(() => {
+    const id  = String(task.id ?? '');
+    const key = `${id}|${task.onset.getTime()}|${task.peak.getTime()}`;
+    if (key === lastKey) return;
+    const isNewTask = lastKey === null || lastKey.slice(0, lastKey.indexOf('|')) !== id;
+    lastKey = key;
+
+    untrack(() => {
+      if (dragging) return;
+      if (isNewTask || !envelopeVisible) applyFit();
+    });
+  });
 </script>
 
 <div class="envelope-editor">
@@ -239,23 +373,43 @@
       onpointerdown={onChartDown}
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
+      onpointercancel={onPointerUp}
       onwheel={onWheel}
     >
-      <!-- Horizontal dashed guides -->
-      <div class="guide" style="top:33.3%"></div>
-      <div class="guide" style="top:66.6%"></div>
+      <!-- Day bands — local calendar days, positioned from the view window -->
+      {#each dayBands as band (band.ms)}
+        <div
+          class="day-band"
+          class:shaded={band.shaded}
+          class:today={band.isToday}
+          style="left:{band.left}%; width:{band.width}%"
+        ></div>
+      {/each}
+
+      <!-- Vertical gridlines, sharing positions with the axis labels below -->
+      {#each ticks as tick (tick.ms)}
+        <div class="gridline" class:major={tick.major} style="left:{tick.left}%"></div>
+      {/each}
+
+      <!-- Horizontal pressure guides (at real pressure levels, not fractions of the box) -->
+      <div class="guide" style="top:{yForP(0.66)}%"></div>
+      <div class="guide" style="top:{yForP(0.33)}%"></div>
 
       <!-- SVG: gradient fill + line -->
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="chart-svg">
         <defs>
-          <linearGradient id="env-grad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0"    stop-color="#6E8B63" stop-opacity="0.22" />
-            <stop offset="0.55" stop-color="#E0A03C" stop-opacity="0.26" />
-            <stop offset="1"    stop-color="#C8553C" stop-opacity="0.30" />
+          <linearGradient
+            id={gradId}
+            gradientUnits="userSpaceOnUse"
+            x1="0" y1={PLOT_TOP} x2="0" y2={PLOT_TOP + PLOT_H}
+          >
+            {#each gradStops as stop (stop.offset)}
+              <stop offset={stop.offset} stop-color={stop.color} />
+            {/each}
           </linearGradient>
         </defs>
-        <path d={paths.area} fill="url(#env-grad)" />
-        <path d={paths.line} fill="none" stroke="#C8553C" stroke-width="1.7" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+        <path d={paths.area} fill="url(#{gradId})" fill-opacity="0.26" />
+        <path d={paths.line} fill="none" stroke="url(#{gradId})" stroke-width="1.7" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
       </svg>
 
       <!-- Now line -->
@@ -289,22 +443,32 @@
           <div class="handle handle-peak"></div>
         </div>
       {/if}
+
+      <!-- Escape hatch when panning/zooming has left the envelope off-screen -->
+      {#if !envelopeVisible}
+        <button
+          class="fit-btn"
+          title="Fit view to this task's envelope"
+          onpointerdown={(e) => e.stopPropagation()}
+          onclick={applyFit}
+        >Fit</button>
+      {/if}
     </div>
   </div>
 
-  <!-- Day axis -->
+  <!-- Time axis -->
   <div class="day-axis">
-    {#each dayLabels as { label, left }}
-      <span class="day-tick" style="left:{left}%">{label}</span>
+    {#each ticks as tick (tick.ms)}
+      <span class="day-tick" class:major={tick.major} style="left:{tick.left}%">{tick.label}</span>
     {/each}
   </div>
 
   <!-- Now pressure pill -->
   {#if showNowBadge}
     <div class="chips">
-      <span class="chip chip-now" style="background:{chipBg(nowPressureInfo.color)}">
+      <span class="chip chip-now" style="--tier:{nowColor}">
         <span class="chip-now-label">now</span>
-        <span class="chip-now-value" style="color:{nowPressureInfo.color}">{nowPressureInfo.label} · {Math.round(nowPressure * 100)}%</span>
+        <span class="chip-now-value">{nowTier?.label ?? '—'} · {Math.round(nowPressure * 100)}%</span>
       </span>
     </div>
   {/if}
@@ -344,8 +508,8 @@
 
   /* Endpoints of the pressure gradient (see ENVELOPE_COLOR_STOPS) — literal,
      not theme-tinted, so the scale reads identically across themes. */
-  .y-severe { top: 2px;    color: #C8553C; }
-  .y-mild   { bottom: 2px; color: #9BB08D; }
+  .y-severe { top: 2px;    color: #B71C1C; }
+  .y-mild   { bottom: 2px; color: #4CAF50; }
 
   /* ── Chart ── */
   .chart {
@@ -357,16 +521,33 @@
     overflow: hidden;
     touch-action: none;
     cursor: grab;
-    background: repeating-linear-gradient(
-      90deg,
-      var(--color-card) 0,
-      var(--color-card) calc(14.285% - 1px),
-      var(--color-border-light) calc(14.285% - 1px),
-      var(--color-border-light) 14.285%
-    );
+    background: var(--color-card);
   }
 
   .chart.panning { cursor: grabbing; }
+
+  /* ── Day bands + gridlines ── */
+  .day-band {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    pointer-events: none;
+  }
+
+  .day-band.shaded { background: var(--color-border-light); opacity: 0.55; }
+  .day-band.today  { background: var(--color-border); opacity: 0.4; }
+
+  .gridline {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-left: 1px solid var(--color-border);
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .gridline.major { opacity: 0.9; }
 
   .guide {
     position: absolute;
@@ -425,30 +606,49 @@
     touch-action: none;
   }
 
+  /* Both rings take the theme's foreground: they are grab affordances, not
+     readouts, and the pressure they sit at is already carried by the curve
+     underneath them. Size and cursor are what tell the two apart. */
   .handle {
     border-radius: 50%;
+    border: 3px solid var(--color-primary);
     background: var(--color-card);
     box-shadow: var(--shadow-elevated);
   }
 
-  /* Handle rings match the pressure-scale endpoints (onset=low/green,
-     peak=high/red) — literal to stay consistent with the gradient. */
   .handle-onset {
     width: 15px;
     height: 15px;
-    border: 3px solid #6E8B63;
     cursor: ew-resize;
   }
 
   .handle-peak {
     width: 17px;
     height: 17px;
-    border: 3px solid #C8553C;
-    box-shadow: var(--shadow-elevated);
     cursor: move;
   }
 
-  /* ── Day axis ── */
+  /* ── Fit-to-task button ── */
+  .fit-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    z-index: 7;
+    padding: 2px 7px;
+    font-size: var(--text-2xs);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+  }
+
+  .fit-btn:hover { color: var(--color-text); border-color: var(--color-text-faint); }
+
+  /* ── Time axis ── */
   .day-axis {
     position: relative;
     height: 18px;
@@ -463,6 +663,9 @@
     color: var(--color-text-faint);
     white-space: nowrap;
   }
+
+  /* Day boundaries read stronger than the hour ticks between them */
+  .day-tick.major { color: var(--color-text-muted); }
 
   /* ── Chips ── */
   .chips {
@@ -484,13 +687,26 @@
     white-space: nowrap;
   }
 
+  /* Same colour treatment as .pressure-pill in TaskRow — the two report the same
+     thing and should look it. Mixing in CSS also means the chip re-resolves on a
+     theme change; it used to be computed in JS from getComputedStyle and baked
+     into an inline style, stranding it on the old theme's card colour. Pulling
+     the text 30% toward --color-text is what keeps the dark tiers legible on the
+     dark themes. */
   .chip-now {
     margin-left: auto;
     gap: 7px;
     padding: 5px 11px;
     border-radius: 999px;
+    background: color-mix(in srgb, var(--tier) 15%, var(--color-card));
+    border: 1px solid color-mix(in srgb, var(--tier) 35%, transparent);
   }
 
   .chip-now-label { font-size: var(--text-xs); color: var(--color-text-muted); font-weight: 600; }
-  .chip-now-value { font-size: var(--text-md); font-weight: 700; }
+  .chip-now-value {
+    font-size: var(--text-md);
+    font-weight: 700;
+    color: color-mix(in srgb, var(--tier) 70%, var(--color-text));
+    font-variant-numeric: tabular-nums;
+  }
 </style>
