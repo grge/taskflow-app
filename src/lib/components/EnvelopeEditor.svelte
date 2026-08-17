@@ -1,7 +1,7 @@
 <script>
   import { untrack } from 'svelte';
   import { clock } from '../../stores/clock.svelte.js';
-  import { pToColor } from '../envelope.js';
+  import { pToColor, getPressureTier } from '../envelope.js';
   import { parseLocalDate, toISODate, minutesToTimeString } from '../calendar.js';
   import { ENVELOPE_COLOR_STOPS } from '../constants.js';
 
@@ -125,6 +125,10 @@
     u = Math.max(0, Math.min(1, u));
     return task.peakPressure * (u * u * (3 - 2 * u));
   })());
+  // Read off the app-wide scale, same as the pill in the expanded task panel.
+  // A local 4-tier copy used to live here with its own thresholds and colours,
+  // and no Critical band at all — a 95% task reported "High".
+  let nowTier  = $derived(getPressureTier(nowPressure));
   let nowColor = $derived(pToColor(nowPressure));
 
   // ── Time axis ───────────────────────────────────────────────────────────────
@@ -232,27 +236,6 @@
     return out;
   })());
 
-  // Blend a hex color toward the theme's card color for chip backgrounds
-  function chipBg(hex) {
-    const card = getComputedStyle(document.documentElement)
-      .getPropertyValue('--color-card').trim();
-    const parse = (h) => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
-    if (!card.startsWith('#') || card.length !== 7) return hex + '22';
-    const [cr,cg,cb] = parse(card);
-    const [hr,hg,hb] = parse(hex);
-    const mix = (c, base) => Math.round(c + (base - c) * 0.80);
-    return `rgb(${mix(hr,cr)},${mix(hg,cg)},${mix(hb,cb)})`;
-  }
-
-  function pressureLabel(p) {
-    if (p < 0.22) return { label: 'Low',      color: '#6E8B63' };
-    if (p < 0.55) return { label: 'Building', color: '#C68A2E' };
-    if (p < 0.75) return { label: 'Elevated', color: '#EF5350' };
-    return { label: 'High', color: '#C8553C' };
-  }
-
-  let nowPressureInfo = $derived(pressureLabel(nowPressure));
-
   // ── View fitting ────────────────────────────────────────────────────────────
 
   let envelopeVisible = $derived(
@@ -330,9 +313,13 @@
     }
   }
 
+  // Also bound to pointercancel: an interrupted pointer (touch taken over by a
+  // scroll gesture, context menu, pen leaving range) fires no pointerup, which
+  // left `dragging` set — the next pointer move then kept dragging with nothing
+  // held down.
   function onPointerUp(e) {
     dragging = null;
-    chartEl?.releasePointerCapture(e.pointerId);
+    if (chartEl?.hasPointerCapture(e.pointerId)) chartEl.releasePointerCapture(e.pointerId);
   }
 
   function onWheel(e) {
@@ -386,6 +373,7 @@
       onpointerdown={onChartDown}
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
+      onpointercancel={onPointerUp}
       onwheel={onWheel}
     >
       <!-- Day bands — local calendar days, positioned from the view window -->
@@ -478,9 +466,9 @@
   <!-- Now pressure pill -->
   {#if showNowBadge}
     <div class="chips">
-      <span class="chip chip-now" style="background:{chipBg(nowPressureInfo.color)}">
+      <span class="chip chip-now" style="--tier:{nowColor}">
         <span class="chip-now-label">now</span>
-        <span class="chip-now-value" style="color:{nowPressureInfo.color}">{nowPressureInfo.label} · {Math.round(nowPressure * 100)}%</span>
+        <span class="chip-now-value">{nowTier?.label ?? '—'} · {Math.round(nowPressure * 100)}%</span>
       </span>
     </div>
   {/if}
@@ -618,25 +606,25 @@
     touch-action: none;
   }
 
+  /* Both rings take the theme's foreground: they are grab affordances, not
+     readouts, and the pressure they sit at is already carried by the curve
+     underneath them. Size and cursor are what tell the two apart. */
   .handle {
     border-radius: 50%;
+    border: 3px solid var(--color-primary);
     background: var(--color-card);
     box-shadow: var(--shadow-elevated);
   }
 
-  /* Handle rings match the pressure-scale endpoints (onset=low/green,
-     peak=high/red) — literal to stay consistent with the gradient. */
   .handle-onset {
     width: 15px;
     height: 15px;
-    border: 3px solid #4CAF50;
     cursor: ew-resize;
   }
 
   .handle-peak {
     width: 17px;
     height: 17px;
-    border: 3px solid #B71C1C;
     cursor: move;
   }
 
@@ -699,13 +687,26 @@
     white-space: nowrap;
   }
 
+  /* Same colour treatment as .pressure-pill in TaskRow — the two report the same
+     thing and should look it. Mixing in CSS also means the chip re-resolves on a
+     theme change; it used to be computed in JS from getComputedStyle and baked
+     into an inline style, stranding it on the old theme's card colour. Pulling
+     the text 30% toward --color-text is what keeps the dark tiers legible on the
+     dark themes. */
   .chip-now {
     margin-left: auto;
     gap: 7px;
     padding: 5px 11px;
     border-radius: 999px;
+    background: color-mix(in srgb, var(--tier) 15%, var(--color-card));
+    border: 1px solid color-mix(in srgb, var(--tier) 35%, transparent);
   }
 
   .chip-now-label { font-size: var(--text-xs); color: var(--color-text-muted); font-weight: 600; }
-  .chip-now-value { font-size: var(--text-md); font-weight: 700; }
+  .chip-now-value {
+    font-size: var(--text-md);
+    font-weight: 700;
+    color: color-mix(in srgb, var(--tier) 70%, var(--color-text));
+    font-variant-numeric: tabular-nums;
+  }
 </style>
