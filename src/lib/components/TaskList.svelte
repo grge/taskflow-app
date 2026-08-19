@@ -1,6 +1,6 @@
 <script>
   import { activeTasks, completedTasks, restoreTask } from '../../stores/tasks.svelte.js';
-  import { openModal } from '../../stores/ui.svelte.js';
+  import { openModal, expandedTaskId } from '../../stores/ui.svelte.js';
   import { pAt, getPressureTier } from '../envelope.js';
   import { clock } from '../../stores/clock.svelte.js';
   import TaskRow from './TaskRow.svelte';
@@ -22,7 +22,7 @@
     return first.date + String(first.startMinutes).padStart(4, '0');
   }
 
-  let sortedTasks = $derived((() => {
+  let liveSorted = $derived((() => {
     const now   = clock.minute;
     const tasks = [...activeTasks.value];
     switch (sortKey) {
@@ -40,6 +40,39 @@
       default: // pressure
         return tasks.sort((a, b) => pAt(b, now) - pAt(a, now));
     }
+  })());
+
+  // Pressure sorting reranks the list whenever pressure changes — including on
+  // every pointermove of an envelope drag, since each one writes the task. The
+  // open card was being yanked out from under the cursor mid-drag, and because
+  // the editor maps pointer position through the chart's bounding rect, moving
+  // that rect rewrote the mapping the drag was measuring against: the reorder
+  // fed the edit that caused it. So the order is pinned while a card is open and
+  // picks up again on collapse.
+  let frozenOrder = $state([]);
+  let frozenKey   = null;
+
+  $effect(() => {
+    const key      = sortKey;
+    const expanded = expandedTaskId.value !== null;
+    const ids      = liveSorted.map(t => t.id);
+    // Re-snapshot when nothing is open, and when the user explicitly picks a
+    // different sort while something is — an ignored sort click reads as broken.
+    if (!expanded || key !== frozenKey) {
+      frozenKey   = key;
+      frozenOrder = ids;
+    }
+  });
+
+  let sortedTasks = $derived((() => {
+    if (expandedTaskId.value === null) return liveSorted;
+    const rank = new Map(frozenOrder.map((id, i) => [id, i]));
+    // Tasks added while a card is open aren't in the snapshot. sort is stable,
+    // so an unranked task keeps its live position among the others at the end.
+    const LAST = Number.MAX_SAFE_INTEGER;
+    return [...activeTasks.value].sort(
+      (a, b) => (rank.get(a.id) ?? LAST) - (rank.get(b.id) ?? LAST)
+    );
   })());
 
   let totalCount       = $derived(activeTasks.value.length);

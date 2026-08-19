@@ -276,12 +276,19 @@
   // Called from handle wrappers — captures for handle drags
   function onHandleDown(e, type) {
     e.stopPropagation();
+    e.preventDefault();
     dragging = type;
     chartEl.setPointerCapture(e.pointerId);
   }
 
-  // Called from the chart background — captures for pan
+  // Called from the chart background — captures for pan.
+  // preventDefault suppresses the browser's native selection/drag gesture, which
+  // otherwise fires selectstart on every press here and drags a text selection
+  // across the widget. That selection can make the browser take over the pointer
+  // and fire pointercancel, which now correctly aborts the drag — so without
+  // this, pressing and dragging could kill the interaction it started.
   function onChartDown(e) {
+    e.preventDefault();
     dragging = 'pan';
     panAnchorX     = e.clientX;
     panAnchorStart = viewStartMs;
@@ -475,10 +482,16 @@
 </div>
 
 <style>
+  /* Drag surface, like the task chip and timeline blocks: never select text.
+     Both handles and the chart body are dragged, and a drag that leaves the
+     chart would otherwise sweep a selection across the axis and the panel
+     below it. */
   .envelope-editor {
     display: flex;
     flex-direction: column;
     gap: 0;
+    user-select: none;
+    -webkit-user-select: none;
   }
 
   /* ── Chart row ── */
