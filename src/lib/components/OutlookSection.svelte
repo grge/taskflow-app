@@ -321,4 +321,13 @@
   .outlook-card.is-locked {
     border-color: var(--color-border);
   }
+
+  /* Touch: a finger landing on a card must still be able to scroll the list.
+     These cards cover nearly the whole panel, so touch-action: none made the
+     list unscrollable on a phone. Vertical dragging comes back behind a
+     long-press to lift; until then a swipe scrolls, which is the more
+     fundamental of the two. Pointer-keyed, so mouse behaviour is unchanged. */
+  @media (pointer: coarse) {
+    .outlook-card { touch-action: pan-y; }
+  }
 </style>

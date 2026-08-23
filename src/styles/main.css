@@ -40,13 +40,16 @@ body {
   color: var(--color-text);
   font-size: 15px;
   line-height: 1.5;
+  /* dvh tracks the retracting mobile URL bar; vh first as the fallback. */
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
 #app {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -254,4 +257,32 @@ input, select, textarea {
 .form-field input:focus,
 .form-field select:focus {
   border-color: var(--color-text-muted);
+}
+
+
+/* ── Touch input ──────────────────────────────────────────────────────────────
+   Keyed off the input device, never the viewport width: a tablet is coarse at
+   1024px wide, a split-screen laptop window is fine at 850px. Width decides
+   layout; these decide how things are touched. */
+
+/* Hover-revealed controls have no reveal gesture on touch. .reveal-btn is the
+   base for the lock toggles, the unschedule buttons and the restore button —
+   seven controls across four components that are simply unreachable otherwise. */
+@media (hover: none) {
+  .reveal-btn { opacity: 1; }
+}
+
+/* Grow the touch target without moving anything: the ::after overlay extends
+   the hit area past the drawn control, so layout is untouched. Components that
+   position these absolutely keep their own position via scoped specificity. */
+@media (pointer: coarse) {
+  .btn-icon,
+  .reveal-btn { position: relative; }
+
+  .btn-icon::after,
+  .reveal-btn::after {
+    content: '';
+    position: absolute;
+    inset: -9px;
+  }
 }

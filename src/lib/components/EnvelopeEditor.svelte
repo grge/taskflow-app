@@ -722,4 +722,17 @@
     color: color-mix(in srgb, var(--tier) 70%, var(--color-text));
     font-variant-numeric: tabular-nums;
   }
+
+  /* Touch targets. The rings stay their drawn size; the wrapper grows around
+     them, and translate(-50%, -50%) is relative to the element's own box so the
+     handle stays centred on its point. ~21px of ring becomes ~45px of target. */
+  @media (pointer: coarse) {
+    .handle-wrap { padding: 15px; }
+
+    .fit-btn {
+      padding: 7px 12px;
+      top: 4px;
+      right: 4px;
+    }
+  }
 </style>

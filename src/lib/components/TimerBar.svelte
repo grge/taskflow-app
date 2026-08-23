@@ -48,7 +48,9 @@
     align-items: center;
     gap: 10px;
     padding: 0 var(--spacing-md);
-    height: 44px;
+    /* Bottom-most chrome: clear the home indicator on notched devices. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    height: calc(44px + env(safe-area-inset-bottom, 0px));
     background: var(--color-timer-bg);
     color: var(--color-timer-text);
     flex-shrink: 0;

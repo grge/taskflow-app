@@ -852,4 +852,28 @@
   .unschedule-btn:hover { color: var(--color-text-muted); }
   .delete-btn:hover { color: var(--color-accent); }
 
+
+  /* Touch: a finger landing on a card must still be able to scroll the list.
+     These cards cover nearly the whole panel, so touch-action: none made the
+     list unscrollable on a phone. Vertical dragging comes back behind a
+     long-press to lift; until then a swipe scrolls, which is the more
+     fundamental of the two. Pointer-keyed, so mouse behaviour is unchanged. */
+  @media (pointer: coarse) {
+    .task-chip { touch-action: pan-y; }
+
+    .complete-circle,
+    .stepper-btn { position: relative; }
+
+    .complete-circle::after,
+    .stepper-btn::after {
+      content: '';
+      position: absolute;
+      inset: -9px;
+    }
+  }
+
+  /* No hover means no reveal — show the play control outright. */
+  @media (hover: none) {
+    .play-hover-btn { width: 26px; opacity: 1; }
+  }
 </style>
