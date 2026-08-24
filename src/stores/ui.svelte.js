@@ -10,6 +10,9 @@ let _activeTimer    = $state(null);
 let _outlookPreview = $state(null);
 // Task list berth currently showing a "drop here to unschedule" ghost: taskId | null
 let _berthGhost      = $state(null);
+// Which of Today / Upcoming the work region shows when the window is too narrow
+// to hold both. Ignored by the wide layout, which always shows both.
+let _narrowPane     = $state('today'); // 'today' | 'upcoming'
 // The date currently shown in the day planner (defaults to today, cannot go before today)
 let _plannerDate    = $state(toISODate(new Date()));
 
@@ -27,6 +30,10 @@ export const expandedTaskId = {
 
 export const activeTab = {
   get value() { return _activeTab; }
+};
+
+export const narrowPane = {
+  get value() { return _narrowPane; }
 };
 
 export const previewBlock = {
@@ -71,6 +78,10 @@ export function setExpandedTask(id) {
 
 export function setActiveTab(tab) {
   _activeTab = tab;
+}
+
+export function setNarrowPane(pane) {
+  _narrowPane = pane;
 }
 
 export function setActiveTimer(timer) {

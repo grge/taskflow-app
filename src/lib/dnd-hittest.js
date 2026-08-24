@@ -25,6 +25,14 @@ export function outlookCardFromPoint(x, y, dayEl, excludeTaskId) {
              && dayEl.contains(el)) ?? null;
 }
 
+// The narrow-layout pane tab under the pointer, or null. Carries `data-pane`.
+// Hovering one mid-drag switches panes, so a drag can still reach the pane that
+// the narrow layout has collapsed away.
+export function paneTabFromPoint(x, y) {
+  return document.elementsFromPoint(x, y)
+    .find(el => el.dataset.pane) ?? null;
+}
+
 // A stable key for a Today cell, used to skip redundant preview recomputes.
 export function cellKey(cell) {
   return cell ? `${cell.dataset.date}:${cell.dataset.start}` : null;
