@@ -48,9 +48,7 @@
     align-items: center;
     gap: 10px;
     padding: 0 var(--spacing-md);
-    /* Bottom-most chrome: clear the home indicator on notched devices. */
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    height: calc(44px + env(safe-area-inset-bottom, 0px));
+    height: 44px;
     background: var(--color-timer-bg);
     color: var(--color-timer-text);
     flex-shrink: 0;
@@ -103,5 +101,14 @@
     background: var(--color-timer-btn-hover);
     border-color: var(--color-timer-btn-border);
     color: var(--color-timer-text);
+  }
+
+  /* The bottom nav sits below this on the phone and owns the safe-area inset.
+     Above that breakpoint the timer is the bottom-most chrome and takes it. */
+  @media (min-width: 760px) {
+    .timer-bar {
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+      height: calc(44px + env(safe-area-inset-bottom, 0px));
+    }
   }
 </style>

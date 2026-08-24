@@ -1,5 +1,5 @@
 <script>
-  import { activeModal, activeTab, setActiveTab, openModal, narrowPane, setNarrowPane, dragState } from './stores/ui.svelte.js';
+  import { activeModal, activeTab, setActiveTab, openModal, pane, setPane, dragState } from './stores/ui.svelte.js';
   import { paneTabFromPoint } from './lib/dnd-hittest.js';
   import { activeTasks, initPersistence } from './stores/tasks.svelte.js';
   import { initClock } from './stores/clock.svelte.js';
@@ -8,6 +8,7 @@
   import TodayPlanner from './lib/components/TodayPlanner.svelte';
   import OutlookSection from './lib/components/OutlookSection.svelte';
   import TimerBar from './lib/components/TimerBar.svelte';
+  import MobileNav from './lib/components/MobileNav.svelte';
   import AddTaskModal from './lib/components/AddTaskModal.svelte';
   import AddBlockModal from './lib/components/AddBlockModal.svelte';
   import SettingsModal from './lib/components/SettingsModal.svelte';
@@ -39,12 +40,12 @@
     let hovered = null;
 
     function onMove(e) {
-      const pane = paneTabFromPoint(e.clientX, e.clientY)?.dataset.pane ?? null;
-      if (pane === hovered) return;
-      hovered = pane;
+      const hit = paneTabFromPoint(e.clientX, e.clientY)?.dataset.pane ?? null;
+      if (hit === hovered) return;
+      hovered = hit;
       clearTimeout(timer);
-      if (pane && pane !== narrowPane.value) {
-        timer = setTimeout(() => setNarrowPane(pane), PANE_SWITCH_MS);
+      if (hit && hit !== pane.value) {
+        timer = setTimeout(() => setPane(hit), PANE_SWITCH_MS);
       }
     }
 
@@ -62,7 +63,7 @@
 
     <nav class="nav-tabs">
       <button
-        class="nav-tab"
+        class="nav-tab tab-plan"
         class:active={activeTab.value === 'plan'}
         onclick={() => setActiveTab('plan')}
       >Plan</button>
@@ -86,7 +87,7 @@
   </header>
 
   {#if activeTab.value === 'plan'}
-    <main class="plan-layout" class:show-upcoming={narrowPane.value === 'upcoming'}>
+    <main class="plan-layout pane-{pane.value}">
       <aside class="task-panel">
         <TaskList />
       </aside>
@@ -94,15 +95,15 @@
       <div class="work-region">
         <!-- Only rendered visibly when the window can't hold both panes -->
         <div class="pane-toggle" role="tablist" aria-label="Work region">
-          {#each PANES as pane}
+          {#each PANES as p}
             <button
               class="pane-tab"
-              class:active={narrowPane.value === pane.key}
+              class:active={pane.value === p.key}
               role="tab"
-              aria-selected={narrowPane.value === pane.key}
-              data-pane={pane.key}
-              onclick={() => setNarrowPane(pane.key)}
-            >{pane.label}</button>
+              aria-selected={pane.value === p.key}
+              data-pane={p.key}
+              onclick={() => setPane(p.key)}
+            >{p.label}</button>
           {/each}
         </div>
 
@@ -131,6 +132,7 @@
   {/if}
 
   <TimerBar />
+  <MobileNav />
 </div>
 
 {#if activeModal.value === 'add-task'}
@@ -282,7 +284,7 @@
   /* ── Narrow window: one of Today / Upcoming at a time ──────────────────────
      Layout only, keyed on width. Nothing here changes how anything is operated
      — a split-screen laptop window is still a mouse. */
-  @media (max-width: 1099px) {
+  @media (min-width: 760px) and (max-width: 1099px) {
     .pane-toggle {
       display: flex;
       gap: 2px;
@@ -311,9 +313,9 @@
     .planner-panel { border-right: none; }
     .outlook-panel { display: none; }
 
-    .plan-layout.show-upcoming .planner-panel { display: none; }
+    .plan-layout.pane-upcoming .planner-panel { display: none; }
 
-    .plan-layout.show-upcoming .outlook-panel {
+    .plan-layout.pane-upcoming .outlook-panel {
       display: flex;
       width: auto;
       flex: 1;
@@ -323,7 +325,7 @@
     /* The backlog is designed around a 260px column. Given the whole region it
        would stretch its cards to ~600px, so cap the content and let the panel
        take the leftover width instead. */
-    .plan-layout.show-upcoming .outlook-panel :global(.outlook-section) {
+    .plan-layout.pane-upcoming .outlook-panel :global(.outlook-section) {
       width: 100%;
       max-width: 420px;
     }
@@ -354,5 +356,48 @@
     box-shadow: 0 2px 16px var(--color-shadow);
     width: 100%;
     max-width: none;
+  }
+
+  /* ── Phone: one panel at a time, switched from the bottom nav ──────────────
+     Keyed on width like the narrow rules above. The bottom nav is the only
+     control here; the work region's Today/Upcoming toggle stands down. */
+  @media (max-width: 759px) {
+    .task-panel {
+      width: auto;
+      flex: 1;
+      min-width: 0;
+      border-right: none;
+      display: none;
+    }
+
+    .work-region { display: none; }
+    .pane-toggle { display: none; }
+
+    .plan-layout.pane-tasks .task-panel { display: flex; }
+
+    .plan-layout.pane-today .work-region,
+    .plan-layout.pane-upcoming .work-region { display: flex; }
+
+    .planner-panel { border-right: none; display: none; }
+    .outlook-panel { display: none; }
+
+    .plan-layout.pane-today .planner-panel { display: flex; }
+
+    .plan-layout.pane-upcoming .outlook-panel {
+      display: flex;
+      width: auto;
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* Header: the bottom nav carries Plan, and the counter is the first thing
+       worth losing to a 390px header. */
+    .app-header { padding: 0 12px; gap: 10px; }
+    .tab-plan { display: none; }
+    .header-meta { display: none; }
+    .nav-tabs { margin-left: auto; }
+    .nav-tab { padding: 5px 10px; }
+
+    .tab-panel { padding: 16px 12px; }
   }
 </style>

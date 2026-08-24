@@ -75,7 +75,10 @@
         </div>
 
         {#if day.entries.length === 0 && !ghost}
-          <div class="day-empty">Drop tasks here</div>
+          <div class="day-empty">
+            <span class="hint-pointer">Drop tasks here</span>
+            <span class="hint-touch">Nothing scheduled</span>
+          </div>
         {:else}
           {#each day.entries as { task, block } (task.id)}
             {#if ghost && ghost.insertBeforeTaskId === task.id}
@@ -329,5 +332,15 @@
      fundamental of the two. Pointer-keyed, so mouse behaviour is unchanged. */
   @media (pointer: coarse) {
     .outlook-card { touch-action: pan-y; }
+  }
+
+  /* The empty state names a gesture that only exists with a pointer. Both
+     strings ship and CSS picks, so it stays keyed on input device like the rest
+     of the touch work rather than needing matchMedia in the component. */
+  .hint-touch { display: none; }
+
+  @media (hover: none) {
+    .hint-pointer { display: none; }
+    .hint-touch { display: inline; }
   }
 </style>

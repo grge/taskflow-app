@@ -223,7 +223,7 @@
         </div>
       {:else if !isScheduled}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="task-chip" class:is-dragging={isChipDragging} class:is-locked={isLocked} style="--spine:{pillColor}" title="Drag to schedule"
+        <div class="task-chip" class:is-dragging={isChipDragging} class:is-locked={isLocked} style="--spine:{pillColor}" title="Drag to schedule, or use ✦ for the next free slot"
           use:draggableTask={{ taskId: task.id }}
           onclick={(e) => e.stopPropagation()}>
           <div class="chip-accent"></div>
