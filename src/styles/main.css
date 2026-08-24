@@ -286,3 +286,19 @@ input, select, textarea {
     inset: -9px;
   }
 }
+
+
+/* ── Lifted for drag (touch) ──────────────────────────────────────────────────
+   The hold completes before the finger has moved, so without a visible change
+   the card looks inert at exactly the moment it became draggable. */
+.is-lifted {
+  box-shadow: 0 6px 18px var(--color-inset-shadow), 0 0 0 2px var(--color-accent);
+  transform: scale(1.02);
+  transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
+  position: relative;
+  z-index: 20;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-lifted { transform: none; transition: none; }
+}

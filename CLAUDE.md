@@ -26,7 +26,7 @@ TaskFlow is a Svelte 5 SPA (no SvelteKit) that schedules tasks by minimizing acc
 
 **Svelte 5 state exports:** Svelte 5 forbids exporting reassignable `$state` from `.svelte.js` modules. All stores export objects with `get value()` accessors. The persistence `$effect` must run inside a component (done via `initPersistence()` called in `App.svelte`).
 
-**Drag-and-drop:** Uses `document.elementsFromPoint()` instead of Interact.js dropzones (more reliable for overlapping/scrolling). Preview blocks render in `previewBlock` (UI store) without touching `scheduledBlocks`. Use `interactjs` (not `@interactjs/interact`) for `.draggable()`/`.dropzone()` methods.
+**Drag-and-drop:** One pointer-event engine (`pointerDrag` in `dnd.js`) drives all four surfaces; there is no drag library. Hit-testing is `document.elementsFromPoint()` via `dnd-hittest.js` (reliable for overlapping/scrolling); placement math lives in `drop-placement.js`; preview blocks render in `previewBlock` (UI store) without touching `scheduledBlocks`. The pointer is captured on `pointerdown`, not on first move — the cards are small enough that a drag leaves them immediately, and without capture the move that starts the drag goes to whatever is underneath. On touch a press must dwell (`liftGate`, 200ms) before it becomes a drag, so a swipe still scrolls the list; the lifted card gets `.is-lifted`. Dragging near a panel edge autoscrolls it (`edgeScroller`).
 
 **Multi-day block splitting:** Tasks can span multiple days; blocks carry `partIndex`/`totalParts`. Grab-offset logic differs: single blocks use pixel offset (`grabOffsetPx`), split blocks use time offset (`grabOffsetMinutes`) with `retreatWork()`.
 

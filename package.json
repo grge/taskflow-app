@@ -13,8 +13,5 @@
     "playwright": "^1.60.0",
     "svelte": "^5.33.12",
     "vite": "^6.3.5"
-  },
-  "dependencies": {
-    "interactjs": "^1.10.27"
   }
 }
