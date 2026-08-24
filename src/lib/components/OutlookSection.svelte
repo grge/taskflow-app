@@ -75,7 +75,10 @@
         </div>
 
         {#if day.entries.length === 0 && !ghost}
-          <div class="day-empty">Drop tasks here</div>
+          <div class="day-empty">
+            <span class="hint-pointer">Drop tasks here</span>
+            <span class="hint-touch">Nothing scheduled</span>
+          </div>
         {:else}
           {#each day.entries as { task, block } (task.id)}
             {#if ghost && ghost.insertBeforeTaskId === task.id}
@@ -320,5 +323,24 @@
 
   .outlook-card.is-locked {
     border-color: var(--color-border);
+  }
+
+  /* Touch: a finger landing on a card must still be able to scroll the list.
+     These cards cover nearly the whole panel, so touch-action: none made the
+     list unscrollable on a phone. Vertical dragging comes back behind a
+     long-press to lift; until then a swipe scrolls, which is the more
+     fundamental of the two. Pointer-keyed, so mouse behaviour is unchanged. */
+  @media (pointer: coarse) {
+    .outlook-card { touch-action: pan-y; }
+  }
+
+  /* The empty state names a gesture that only exists with a pointer. Both
+     strings ship and CSS picks, so it stays keyed on input device like the rest
+     of the touch work rather than needing matchMedia in the component. */
+  .hint-touch { display: none; }
+
+  @media (hover: none) {
+    .hint-pointer { display: none; }
+    .hint-touch { display: inline; }
   }
 </style>

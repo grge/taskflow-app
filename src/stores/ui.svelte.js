@@ -10,6 +10,11 @@ let _activeTimer    = $state(null);
 let _outlookPreview = $state(null);
 // Task list berth currently showing a "drop here to unschedule" ghost: taskId | null
 let _berthGhost      = $state(null);
+// Which panel the layout shows when it can't show them all. The stacked phone
+// layout honours all three; the narrow-window layout keeps the task panel
+// visible always and reads this only to pick Today vs Upcoming; the wide layout
+// shows everything and ignores it.
+let _pane           = $state('today'); // 'tasks' | 'today' | 'upcoming'
 // The date currently shown in the day planner (defaults to today, cannot go before today)
 let _plannerDate    = $state(toISODate(new Date()));
 
@@ -27,6 +32,10 @@ export const expandedTaskId = {
 
 export const activeTab = {
   get value() { return _activeTab; }
+};
+
+export const pane = {
+  get value() { return _pane; }
 };
 
 export const previewBlock = {
@@ -71,6 +80,10 @@ export function setExpandedTask(id) {
 
 export function setActiveTab(tab) {
   _activeTab = tab;
+}
+
+export function setPane(next) {
+  _pane = next;
 }
 
 export function setActiveTimer(timer) {

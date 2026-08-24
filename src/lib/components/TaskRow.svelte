@@ -1,5 +1,5 @@
 <script>
-  import { editTask, deleteTask, completeTask, unscheduleTask, toggleLock, setRemaining, setElapsed, startTimer, pauseTimer, resumeTimer, finishTimer, liveSeconds } from '../../stores/tasks.svelte.js';
+  import { editTask, deleteTask, completeTask, unscheduleTask, toggleLock, setRemaining, setElapsed, startTimer, pauseTimer, resumeTimer, finishTimer, liveSeconds, scheduleTaskNext, restoreBlocks } from '../../stores/tasks.svelte.js';
   import { setExpandedTask, expandedTaskId, activeTimer, berthGhost, dragState } from '../../stores/ui.svelte.js';
   import { draggableTask } from '../dnd.js';
   import { minutesToTimeString, toISODate, parseLocalDate } from '../calendar.js';
@@ -91,6 +91,42 @@
   }
 
   const scheduledBadge = $derived(firstScheduledBadge(task.scheduledBlocks));
+
+  // Transient result line for the schedule action. Lives in the sub-line when
+  // collapsed and in the actions row when expanded, so it never adds height.
+  // { kind: 'ok' | 'fail', text, undo? }
+  let flash = $state(null);
+  let flashTimer = null;
+
+  function setFlash(next) {
+    clearTimeout(flashTimer);
+    flash = next;
+    if (next) flashTimer = setTimeout(() => { flash = null; }, 7000);
+  }
+
+  $effect(() => () => clearTimeout(flashTimer));
+
+  const FLASH_REASONS = {
+    'no-room':      'No free slot in the next 7 work days',
+    'no-work-days': 'No work days enabled — check Settings',
+    'unavailable':  'This task can no longer be scheduled'
+  };
+
+  function handleScheduleNext(e) {
+    e.stopPropagation();
+    const before = task.scheduledBlocks;
+    const res = scheduleTaskNext(task.id);
+
+    if (!res.ok) {
+      setFlash({ kind: 'fail', text: FLASH_REASONS[res.reason] ?? 'Could not schedule' });
+      return;
+    }
+    setFlash({
+      kind: 'ok',
+      text: `Scheduled ${firstScheduledBadge(res.blocks)}`,
+      undo: () => { restoreBlocks(task.id, before); setFlash(null); }
+    });
+  }
 </script>
 
 <div
@@ -141,7 +177,12 @@
       </div>
       {#if !isExpanded}
         <span class="task-subline">
-          {#if isPastScheduled}
+          {#if flash}
+            <span class="flash" class:flash-fail={flash.kind === 'fail'}>{flash.text}</span>
+            {#if flash.undo}
+              <button class="flash-undo" onclick={(e) => { e.stopPropagation(); flash.undo(); }}>Undo</button>
+            {/if}
+          {:else if isPastScheduled}
             <span class="status-dot" style="background:{pillColor}"></span>
             <span class="past-flag" title="Past scheduled time">past scheduled time</span>
           {:else if showFooter}
@@ -157,6 +198,14 @@
         </span>
       {/if}
     </div>
+
+    <!-- Schedule at the next free slot. .reveal-btn so it hover-reveals with a
+         mouse and stays visible on touch, where there is no reveal gesture. -->
+    <button
+      class="reveal-btn schedule-btn"
+      title={isScheduled ? 'Move to the next free slot' : 'Schedule at the next free slot'}
+      onclick={handleScheduleNext}
+    >✦</button>
 
     <!-- Hover-reveal play button (inactive rows only) -->
     {#if !isTimerRunning}
@@ -174,7 +223,7 @@
         </div>
       {:else if !isScheduled}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="task-chip" class:is-dragging={isChipDragging} class:is-locked={isLocked} style="--spine:{pillColor}" title="Drag to schedule"
+        <div class="task-chip" class:is-dragging={isChipDragging} class:is-locked={isLocked} style="--spine:{pillColor}" title="Drag to schedule, or use ✦ for the next free slot"
           use:draggableTask={{ taskId: task.id }}
           onclick={(e) => e.stopPropagation()}>
           <div class="chip-accent"></div>
@@ -303,6 +352,19 @@
 
       <!-- Actions -->
       <div class="expanded-actions">
+        {#if flash}
+          <div class="flash-row">
+            <span class="flash" class:flash-fail={flash.kind === 'fail'}>{flash.text}</span>
+            {#if flash.undo}
+              <button class="flash-undo" onclick={(e) => { e.stopPropagation(); flash.undo(); }}>Undo</button>
+            {/if}
+          </div>
+        {/if}
+        <button class="action-text schedule-action"
+          title={isScheduled ? 'Move to the next free slot' : 'Schedule at the next free slot'}
+          onclick={handleScheduleNext}>
+          {isScheduled ? 'Reschedule' : 'Schedule'}
+        </button>
         {#if isScheduled}
           <button class="action-text unschedule-btn"
             onclick={(e) => { e.stopPropagation(); unscheduleTask(task.id); }}>
@@ -852,4 +914,91 @@
   .unschedule-btn:hover { color: var(--color-text-muted); }
   .delete-btn:hover { color: var(--color-accent); }
 
+
+  /* Touch: a finger landing on a card must still be able to scroll the list.
+     These cards cover nearly the whole panel, so touch-action: none made the
+     list unscrollable on a phone. Vertical dragging comes back behind a
+     long-press to lift; until then a swipe scrolls, which is the more
+     fundamental of the two. Pointer-keyed, so mouse behaviour is unchanged. */
+  @media (pointer: coarse) {
+    .task-chip { touch-action: pan-y; }
+
+    /* A primary action needs a real target, not just the shared ::after nudge
+       that .reveal-btn gets — 14px of glyph is nowhere near 44px. Sized rather
+       than overlaid so the flex row spaces it off its neighbours instead of
+       stacking invisible hit areas on top of them. */
+    .schedule-btn {
+      min-width: 44px;
+      min-height: 44px;
+      font-size: var(--text-md);
+    }
+
+    .schedule-btn::after { content: none; }
+
+    .complete-circle,
+    .stepper-btn { position: relative; }
+
+    .complete-circle::after,
+    .stepper-btn::after {
+      content: '';
+      position: absolute;
+      inset: -9px;
+    }
+  }
+
+  /* No hover means no reveal — show the play control outright. */
+  @media (hover: none) {
+    .play-hover-btn { width: 26px; opacity: 1; }
+  }
+
+  /* ── Schedule action ── */
+  .schedule-btn {
+    flex-shrink: 0;
+    font-size: var(--text-sm);
+    line-height: 1;
+  }
+
+  .task-card:hover .schedule-btn { opacity: 1; }
+  .schedule-btn:hover { color: var(--color-accent); }
+
+  .schedule-action { color: var(--color-accent); }
+
+  /* Result line. Sits in the sub-line's place so the row never changes height. */
+  .flash { color: var(--color-success, var(--color-text-muted)); font-weight: 600; }
+  .flash-fail { color: var(--color-danger); }
+
+  /* The sub-line is a flex row with overflow: hidden, so both children shrink
+     and the control was the half that got clipped. Pin the control and let the
+     message ellipsize instead — an unreadable message beats an untappable undo. */
+  .flash {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .flash-undo {
+    flex-shrink: 0;
+    border: none;
+    background: none;
+    padding: 0 0 0 6px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--color-accent);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  /* Result line and its undo share a full-width row above the actions: the line
+     never squeezes them, and undo stays with the thing it undoes rather than
+     landing next to Delete. */
+  .expanded-actions { flex-wrap: wrap; }
+
+  .flash-row {
+    flex-basis: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .expanded-actions .flash { overflow: visible; }
 </style>

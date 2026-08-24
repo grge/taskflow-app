@@ -587,4 +587,10 @@
   }
 
   .btn-danger-ghost:hover { color: var(--color-danger); }
+
+  /* The hours drag is horizontal, so pan-y hands vertical scrolling back to the
+     modal while the drag itself keeps working. */
+  @media (pointer: coarse) {
+    .hours-track { touch-action: pan-y; }
+  }
 </style>

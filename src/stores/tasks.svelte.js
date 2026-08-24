@@ -1,7 +1,7 @@
 import { loadState, saveState } from '../lib/persistence.js';
 import { createTask, updateTask, remainingMinutes as remainingOf } from '../lib/tasks.js';
 import { placeBlockOnTask, removeBlocksForTask } from '../lib/scheduling.js';
-import { autoSchedule } from '../lib/scheduler.js';
+import { autoSchedule, packSequence } from '../lib/scheduler.js';
 import { reorderAndBumpForward } from '../lib/outlook-scheduler.js';
 import { workSchedule, fixedBlocks } from './schedule.svelte.js';
 import { activeTimer, setActiveTimer } from './ui.svelte.js';
@@ -267,6 +267,49 @@ export function autoScheduleAll() {
     const tb = blocksByTask.get(t.id);
     return tb ? placeBlockOnTask(t, tb) : t;
   });
+}
+
+// Place one task at the earliest free work time, leaving every other task where
+// it is. This is packSequence with a one-task sequence, so it inherits the bulk
+// auto-scheduler's free-interval walk, buffer handling, multi-day splitting and
+// 7-work-day window rather than growing a second copy of that logic.
+//
+// The task's own blocks are excluded from the obstacle set — a scheduled task
+// has to be able to re-place over the slot it currently occupies. Soft-deleted
+// tasks are excluded too, so a deleted task can't hold a slot hostage.
+//
+// Returns { ok: false, reason } or { ok: true, blocks, previousBlocks }, where
+// previousBlocks is whatever the task had before, for undo.
+export function scheduleTaskNext(taskId) {
+  const task = _tasks.find(t => t.id === taskId);
+  if (!task || task.isCompleted || task.isDeleted) return { ok: false, reason: 'unavailable' };
+
+  const obstacles = _tasks
+    .filter(t => t.id !== taskId && !t.isCompleted && !t.isDeleted)
+    .flatMap(t => t.scheduledBlocks);
+
+  const blocks = packSequence(
+    [withLiveElapsed(task)], workSchedule.value, obstacles, fixedBlocks.value
+  );
+
+  // packSequence signals two different failures: null when no gap is large
+  // enough, [] when the schedule has no enabled work days at all.
+  if (!blocks) return { ok: false, reason: 'no-room' };
+  if (!blocks.length) return { ok: false, reason: 'no-work-days' };
+
+  const previousBlocks = task.scheduledBlocks;
+  _tasks = _tasks.map(t => (t.id === taskId ? placeBlockOnTask(t, blocks) : t));
+  return { ok: true, blocks, previousBlocks };
+}
+
+// Undo for scheduleTaskNext: put back exactly what the task had, including
+// having had nothing.
+export function restoreBlocks(taskId, blocks) {
+  _tasks = _tasks.map(t =>
+    t.id === taskId
+      ? (blocks.length ? placeBlockOnTask(t, blocks) : removeBlocksForTask(t))
+      : t
+  );
 }
 
 export function clearSchedule() {
