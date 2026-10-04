@@ -9,6 +9,8 @@
   import OutlookSection from './lib/components/OutlookSection.svelte';
   import TimerBar from './lib/components/TimerBar.svelte';
   import MobileNav from './lib/components/MobileNav.svelte';
+  import PanelResizer from './lib/components/PanelResizer.svelte';
+  import { taskPanelWidth } from './stores/layout.svelte.js';
   import AddTaskModal from './lib/components/AddTaskModal.svelte';
   import AddBlockModal from './lib/components/AddBlockModal.svelte';
   import SettingsModal from './lib/components/SettingsModal.svelte';
@@ -20,6 +22,8 @@
 
   let totalCount       = $derived(activeTasks.value.length);
   let unscheduledCount = $derived(activeTasks.value.filter(t => !t.scheduledBlocks.length).length);
+
+  let taskPanelEl = $state(null);
 
   const PANES = [
     { key: 'today',    label: 'Today'    },
@@ -87,10 +91,14 @@
   </header>
 
   {#if activeTab.value === 'plan'}
-    <main class="plan-layout pane-{pane.value}">
-      <aside class="task-panel">
+    <main
+      class="plan-layout pane-{pane.value}"
+      style={taskPanelWidth.value ? `--task-panel-w:${taskPanelWidth.value}px` : undefined}
+    >
+      <aside class="task-panel" bind:this={taskPanelEl}>
         <TaskList />
       </aside>
+      <PanelResizer target={taskPanelEl} />
 
       <div class="work-region">
         <!-- Only rendered visibly when the window can't hold both panes -->
@@ -232,8 +240,10 @@
   }
 
   .task-panel {
-    /* Fluid so the three panels survive down to the stacked breakpoint. */
-    width: clamp(300px, 34vw, 380px);
+    /* Fluid until manually resized, then whatever width was dragged. max-width
+       is the backstop for a width saved on a wider window than this one. */
+    width: var(--task-panel-w, clamp(300px, 34vw, 380px));
+    max-width: 60vw;
     flex-shrink: 0;
     border-right: 1px solid var(--color-border);
     overflow: hidden;
