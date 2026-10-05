@@ -302,3 +302,9 @@ input, select, textarea {
 @media (prefers-reduced-motion: reduce) {
   .is-lifted { transform: none; transition: none; }
 }
+
+
+/* Held on <html> while a panel is being resized, so the cursor doesn't flicker
+   as the pointer crosses other elements mid-drag. */
+.resizing-active,
+.resizing-active * { cursor: col-resize !important; }
