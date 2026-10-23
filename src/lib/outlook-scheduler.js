@@ -1,6 +1,7 @@
 import { getVisibleWorkDays, parseLocalDate } from './calendar.js';
 import { computeFreeIntervals } from './scheduling.js';
 import { schedulableMinutes } from './tasks.js';
+import { SCHEDULING_HORIZON_DAYS } from './constants.js';
 
 // Reorder tasks for a given day, packing sequentially from day start.
 // Tasks that don't fit on the target day spill to subsequent work days rather
@@ -11,7 +12,14 @@ import { schedulableMinutes } from './tasks.js';
 // Unlike the auto-scheduler, order is taken as given (the user's drag); this
 // routine only decides *where* each task lands, not the sequence.
 //
-// Returns { reordered: Task[], blocks: Map<taskId, ScheduledBlock> }
+// Outlook cards are single-day placements by design, so a task longer than one
+// work day has no interval that can hold it whole. Such tasks are reported in
+// `unplaceable` rather than dropped: the caller has usually already cleared the
+// task's old blocks to make the move, and silently placing nothing would leave
+// it unscheduled with no indication why.
+//
+// Returns { reordered: Task[], blocks: Map<taskId, ScheduledBlock>,
+//           unplaceable: taskId[] }
 export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, schedule, occupiedBlocks, date) {
   const movedTask    = orderedTasks.find(t => t.id === movedTaskId);
   const withoutMoved = orderedTasks.filter(t => t.id !== movedTaskId);
@@ -22,10 +30,11 @@ export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, sched
   ];
 
   const blocks = new Map();
+  const unplaceable = [];
 
   // Look ahead enough days to absorb any overflow.
-  const visibleDays = getVisibleWorkDays(schedule, 21);
-  if (!visibleDays.length) return { reordered, blocks };
+  const visibleDays = getVisibleWorkDays(schedule, SCHEDULING_HORIZON_DAYS);
+  if (!visibleDays.length) return { reordered, blocks, unplaceable };
 
   const bufferMinutes = schedule.bufferMinutes ?? 0;
   const fromDate = parseLocalDate(date);
@@ -49,7 +58,12 @@ export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, sched
         break;
       }
     }
-    if (placedIdx === -1) continue; // no gap ahead fits it — leave unscheduled
+    if (placedIdx === -1) {
+      // No remaining gap holds it whole — most often a task longer than a
+      // single work day, which this packer cannot split.
+      unplaceable.push(task.id);
+      continue;
+    }
 
     const iv = intervals[placedIdx];
     blocks.set(task.id, {
@@ -66,5 +80,5 @@ export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, sched
     cursorIdx = placedIdx;
   }
 
-  return { reordered, blocks };
+  return { reordered, blocks, unplaceable };
 }

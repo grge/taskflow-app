@@ -2,6 +2,7 @@ import { accumulatedPressure } from './envelope.js';
 import { advanceWork, getVisibleWorkDays, parseLocalDate } from './calendar.js';
 import { splitTaskAcrossDays, computeFreeIntervals } from './scheduling.js';
 import { schedulableMinutes } from './tasks.js';
+import { SCHEDULING_HORIZON_DAYS } from './constants.js';
 
 // ─── packSequence ────────────────────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ import { schedulableMinutes } from './tasks.js';
 export function packSequence(sequence, schedule, manualBlocks = [], fixedBlocks = []) {
   const allBlocking = [...manualBlocks, ...fixedBlocks];
   const bufferMinutes = schedule.bufferMinutes ?? 0;
-  const visibleDays = getVisibleWorkDays(schedule, 7);
+  const visibleDays = getVisibleWorkDays(schedule, SCHEDULING_HORIZON_DAYS);
   if (!visibleDays.length) return [];
 
   const result = [];
@@ -103,10 +104,7 @@ export function autoSchedule(allTasks, schedule, fixedBlocks = []) {
   const unscheduled = allTasks
     .filter(t => !t.isCompleted && !t.isDeleted && !t.isLocked && t.scheduledBlocks.length === 0);
 
-  if (!unscheduled.length) {
-    console.log('[autoSchedule] nothing to schedule');
-    return [];
-  }
+  if (!unscheduled.length) return [];
 
   // ── Phase 1: greedy initial ordering ────────────────────────────────────────
   const sequence = [];
@@ -146,11 +144,9 @@ export function autoSchedule(allTasks, schedule, fixedBlocks = []) {
       }
     }
     blocks = lo > 0 ? packSequence(sequence.slice(0, lo), schedule, manualBlocks, fixedBlocks) : [];
-    console.log(`[autoSchedule] window full: scheduled ${lo}/${sequence.length} tasks`);
   }
 
   let cost = totalCost(blocks, sequence);
-  console.log(`[autoSchedule] greedy cost: ${cost.toFixed(4)}`);
 
   // ── Phase 3: local search ────────────────────────────────────────────────────
   // Operate only on the schedulable prefix.
@@ -209,6 +205,5 @@ export function autoSchedule(allTasks, schedule, fixedBlocks = []) {
     }
   }
 
-  console.log(`[autoSchedule] final cost: ${cost.toFixed(4)}`);
   return blocks;
 }

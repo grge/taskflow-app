@@ -6,7 +6,7 @@
 import { splitTaskAcrossDays } from './scheduling.js';
 import { schedulableMinutes } from './tasks.js';
 import { getVisibleWorkDays, retreatWork, toISODate, getDaySchedule, parseLocalDate } from './calendar.js';
-import { SNAP_MINUTES } from './constants.js';
+import { SNAP_MINUTES, SCHEDULING_HORIZON_DAYS } from './constants.js';
 
 // ─── Today-planner placement ─────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ function resolveTaskStart(cell, grabOffsetMinutes, schedule) {
 // Compute the ScheduledBlock[] a task would occupy if dropped at `cell`
 // (Today-planner slot). `cell` is { date, start }. Returns blocks or null.
 export function computeBlocksForCell(task, cell, grabOffsetMinutes, schedule) {
-  const visibleDays = getVisibleWorkDays(schedule, 7);
+  const visibleDays = getVisibleWorkDays(schedule, SCHEDULING_HORIZON_DAYS);
 
   const taskStart = grabOffsetMinutes > 0
     ? resolveTaskStart(cell, grabOffsetMinutes, schedule)

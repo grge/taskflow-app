@@ -186,13 +186,28 @@ export function commitOutlookDrop(movedTaskId, sourceDateStr, targetDateStr, ins
     .flatMap(t => t.scheduledBlocks);
   const occupiedBlocks = [...fixedBlocks.value, ...otherScheduledBlocks];
 
-  const { blocks } = reorderAndBumpForward(
+  // Snapshot before mutating, so a failed placement can be rolled back rather
+  // than leaving the task unscheduled.
+  const previousBlocks = new Map(
+    orderedTasks.map(t => [t.id, _tasks.find(x => x.id === t.id)?.scheduledBlocks ?? []])
+  );
+
+  const { blocks, unplaceable } = reorderAndBumpForward(
     orderedTasks, movedTaskId, insertAt,
     workSchedule.value, occupiedBlocks, targetDateStr
   );
 
   for (const [taskId, block] of blocks) {
     scheduleTask(taskId, [block]);
+  }
+
+  // A cross-day move clears the task's old blocks up front, so a task the
+  // packer could not place (longer than one work day — outlook cards never
+  // split) would otherwise end up silently unscheduled. Put it back where it
+  // was instead of destroying the user's existing schedule.
+  for (const taskId of unplaceable) {
+    const prior = previousBlocks.get(taskId);
+    if (prior?.length) scheduleTask(taskId, prior);
   }
 }
 

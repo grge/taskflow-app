@@ -5,6 +5,16 @@ export const SNAP_MINUTES = 15;
 // non-degenerate block — avoids zero-height cards and divide-by-zero in scoring.
 export const MIN_BLOCK_MINUTES = 5;
 
+// How many work days ahead any scheduler may place work. Every placement path
+// (auto-schedule, single-task, outlook reorder, drag-drop) reads this, so a
+// task placeable on one surface is placeable on all of them. Previously each
+// call site passed its own literal (7 / 7 / 21), which meant the outlook
+// backlog could park a task on a day autoSchedule could not see.
+//
+// Distinct from the outlook panel's *rendering* window, which counts days
+// forward from whichever day is being viewed rather than from today.
+export const SCHEDULING_HORIZON_DAYS = 21;
+
 export const PRESSURE_SCALE = [
   { min: 0.00, max: 0.20, level: 1, label: 'Low',      emoji: '😌', color: '#4CAF50' },
   { min: 0.20, max: 0.40, level: 2, label: 'Building',  emoji: '😬', color: '#8BC34A' },
