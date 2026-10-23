@@ -114,7 +114,7 @@
       </div>
     {:else}
       <div class="chart-wrap">
-        <svg width={W} height={H}>
+        <svg class="chart-svg" viewBox="0 0 {W} {H}" width={W} height={H} preserveAspectRatio="xMidYMid meet">
           <!-- Grid lines -->
           {#each yTicks as tick}
             <line
@@ -306,5 +306,29 @@
     justify-content: flex-end;
     padding: 12px 20px;
     border-top: 1px solid var(--color-border);
+  }
+
+  /* ── Phone ────────────────────────────────────────────────────────────────
+     500px of modal in a 366px box clipped on the right; the chart's fixed
+     420px SVG overflowed the padding on its own. */
+  @media (max-width: 759px) {
+    .insights-modal {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .modal-header,
+    .modal-footer { padding-inline: 14px; }
+
+    .chart-wrap { padding-inline: 14px; }
+
+    /* The viewBox lets it scale down; the y-label's rotated position is
+       relative to .chart-wrap, so it follows. */
+    .chart-svg {
+      width: 100%;
+      height: auto;
+    }
+
+    .stat { padding: 12px 4px; }
   }
 </style>

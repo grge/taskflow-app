@@ -293,8 +293,10 @@
 
   /* ── Narrow window: one of Today / Upcoming at a time ──────────────────────
      Layout only, keyed on width. Nothing here changes how anything is operated
-     — a split-screen laptop window is still a mouse. */
-  @media (min-width: 760px) and (max-width: 1099px) {
+     — a split-screen laptop window is still a mouse. The trailing exclusion
+     hands a landscape phone (844px wide, 390px tall) to the phone shell below
+     rather than this two-pane one. */
+  @media (min-width: 760px) and (max-width: 1099px) and (not ((max-height: 500px) and (pointer: coarse))) {
     .pane-toggle {
       display: flex;
       gap: 2px;
@@ -369,9 +371,15 @@
   }
 
   /* ── Phone: one panel at a time, switched from the bottom nav ──────────────
-     Keyed on width like the narrow rules above. The bottom nav is the only
-     control here; the work region's Today/Upcoming toggle stands down. */
-  @media (max-width: 759px) {
+     The bottom nav is the only control here; the work region's Today/Upcoming
+     toggle stands down.
+
+     Two conditions, because a rotated phone is neither narrow nor tall: 844×390
+     cleared the width breakpoint and un-stacked three panels into 390px of
+     height, with the nav that replaced the desktop affordances gone with it.
+     The second condition catches that without touching a short *desktop*
+     window, which is still a mouse. */
+  @media (max-width: 759px), (max-height: 500px) and (pointer: coarse) {
     .task-panel {
       width: auto;
       flex: 1;
@@ -402,12 +410,33 @@
 
     /* Header: the bottom nav carries Plan, and the counter is the first thing
        worth losing to a 390px header. */
-    .app-header { padding: 0 12px; gap: 10px; }
+    .app-header {
+      gap: 10px;
+      /* viewport-fit=cover puts the header under the notch in landscape. */
+      padding: env(safe-area-inset-top, 0px) max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px));
+      height: calc(52px + env(safe-area-inset-top, 0px));
+    }
+
+    /* The panels run edge to edge, so the notch cuts into whichever one is
+       showing. Inset the shell rather than each panel's own padding.
+       .tab-panel folds the same insets into its own padding below. */
+    .plan-layout {
+      padding-left: env(safe-area-inset-left, 0px);
+      padding-right: env(safe-area-inset-right, 0px);
+    }
     .tab-plan { display: none; }
     .header-meta { display: none; }
     .nav-tabs { margin-left: auto; }
     .nav-tab { padding: 5px 10px; }
+  }
 
-    .tab-panel { padding: 16px 12px; }
+  /* Header tabs measure ~70×28 — the only navigation on the phone besides the
+     bottom nav, and the smallest thing in the chrome. */
+  @media (pointer: coarse) {
+    .nav-tab { min-height: 40px; padding-block: 8px; }
+
+    .tab-panel {
+      padding: 16px max(12px, env(safe-area-inset-right, 0px)) 16px max(12px, env(safe-area-inset-left, 0px));
+    }
   }
 </style>

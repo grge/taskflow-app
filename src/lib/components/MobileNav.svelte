@@ -30,17 +30,22 @@
 
 <style>
   /* Phone shell only. Above the stacked breakpoint the panels coexist and this
-     has nothing to switch between. */
+     has nothing to switch between. The conditions must stay in step with the
+     phone shell in App.svelte — a landscape phone stacks too, and losing the
+     nav there leaves no way to switch panes at all. */
   .mobile-nav { display: none; }
 
-  @media (max-width: 759px) {
+  @media (max-width: 759px), (max-height: 500px) and (pointer: coarse) {
     .mobile-nav {
       display: flex;
       flex-shrink: 0;
       background: var(--color-card);
       border-top: 1px solid var(--color-border);
-      /* Bottom-most chrome on the phone: clear the home indicator. */
+      /* Bottom-most chrome on the phone: clear the home indicator, and in
+         landscape the notch on whichever side it falls. */
       padding-bottom: env(safe-area-inset-bottom, 0px);
+      padding-left: env(safe-area-inset-left, 0px);
+      padding-right: env(safe-area-inset-right, 0px);
     }
 
     .nav-item {

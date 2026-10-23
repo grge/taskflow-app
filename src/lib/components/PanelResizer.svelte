@@ -119,7 +119,7 @@
   }
 
   /* Stacked phone layout: the panel is full width, so there is nothing to size. */
-  @media (max-width: 759px) {
+  @media (max-width: 759px), (max-height: 500px) and (pointer: coarse) {
     .panel-resizer { display: none; }
   }
 

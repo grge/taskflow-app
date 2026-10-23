@@ -593,4 +593,49 @@
   @media (pointer: coarse) {
     .hours-track { touch-action: pan-y; }
   }
+
+  /* ── Phone ────────────────────────────────────────────────────────────────
+     The 420px floor plus the section padding overflowed a 390px viewport, and
+     the panel clipped instead of scrolling — so the right theme column, the
+     hours ranges and the Scheduling controls all ran off the edge. */
+  @media (max-width: 759px) {
+    .settings-modal {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    section { padding: 16px 14px; }
+
+    /* Two 1fr columns leave ~150px per card, less than the swatch plus name. */
+    .theme-grid { grid-template-columns: 1fr; }
+
+    /* The hint sits beside the title on one baseline; at this width it has to
+       drop under it or push the title out of the box. */
+    .section-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+    }
+
+    .section-hint { white-space: normal; }
+
+    /* Label + track + range is ~60 + track + 118px. Narrow the fixed columns
+       and let the range wrap rather than truncate to "9:00a – 5:0…". */
+    .hours-row { gap: 8px; }
+    .hours-row-label { width: 52px; }
+
+    .hours-range-label {
+      width: 96px;
+      font-size: var(--text-sm);
+    }
+
+    .hours-axis-row .hours-range-label-spacer { width: 96px; }
+
+    /* Label and segmented control side by side don't fit; stack them. */
+    .field-row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+  }
 </style>
