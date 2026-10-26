@@ -2,6 +2,8 @@
   import { closeModal, setActiveTab } from '../../stores/ui.svelte.js';
   import { workSchedule, updateWorkSchedule } from '../../stores/schedule.svelte.js';
   import { theme, setTheme } from '../../stores/theme.svelte.js';
+  import { data, exportData, readImport, importData } from '../../stores/data.svelte.js';
+  import { toISODate } from '../calendar.js';
 
   const THEMES = [
     { id: 'warm-parchment', label: 'Warm Parchment', desc: 'Earthy, nostalgic, old book' },
@@ -110,6 +112,39 @@
     if (!drag) return;
     drag.trackEl.releasePointerCapture(e.pointerId);
     drag = null;
+  }
+
+  // ── Your data: export and import ─────────────────────────────────────────
+  const liveTaskCount = $derived(data.tasks.filter(t => !t.isDeleted).length);
+  let importStatus = $state(null); // { ok, message }
+  let fileInput;
+
+  function downloadExport() {
+    const blob = new Blob([exportData()], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `taskflow-${toISODate(new Date())}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function onImportFile(e) {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = ''; // so choosing the same file again still fires
+    if (!file) return;
+    importStatus = null;
+    const read = readImport(await file.text());
+    if (!read.ok) {
+      importStatus = { ok: false, message: read.reason };
+      return;
+    }
+    const plural = n => `${n} task${n === 1 ? '' : 's'}`;
+    if (liveTaskCount > 0 && !confirm(`Replace your ${plural(liveTaskCount)}, work hours and fixed blocks with the ${plural(read.tasks)} in ${file.name}? Export first if you might want yours back.`)) return;
+    const r = importData(read.data);
+    importStatus = r.ok
+      ? { ok: true, message: `Imported ${plural(r.tasks)} from ${file.name}.` }
+      : { ok: false, message: r.reason };
   }
 
   function hardReset() {
@@ -228,6 +263,31 @@
             {/each}
           </div>
         </div>
+      </section>
+
+      <section>
+        <h3 class="section-title">Your data</h3>
+        <div class="field-row">
+          <div class="field-info">
+            <span class="field-label">Back up or move your data</span>
+            <span class="field-hint">Tasks, work hours and fixed blocks as one JSON file. Importing replaces what is here.</span>
+          </div>
+          <div class="data-actions">
+            <button class="btn btn-sm" onclick={downloadExport}>Export</button>
+            <button class="btn btn-sm" onclick={() => fileInput.click()}>Import…</button>
+            <input
+              bind:this={fileInput}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onchange={onImportFile}
+              data-testid="import-file"
+            />
+          </div>
+        </div>
+        {#if importStatus}
+          <p class="import-status" class:error={!importStatus.ok} role="status">{importStatus.message}</p>
+        {/if}
       </section>
 
     </div>
@@ -566,6 +626,21 @@
     flex-shrink: 0;
   }
 
+  /* ── Your data ── */
+  .data-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .import-status {
+    margin: 10px 0 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .import-status.error { color: var(--color-danger); }
+
   /* ── Footer ── */
   .modal-footer {
     display: flex;
@@ -592,5 +667,50 @@
      modal while the drag itself keeps working. */
   @media (pointer: coarse) {
     .hours-track { touch-action: pan-y; }
+  }
+
+  /* ── Phone ────────────────────────────────────────────────────────────────
+     The 420px floor plus the section padding overflowed a 390px viewport, and
+     the panel clipped instead of scrolling — so the right theme column, the
+     hours ranges and the Scheduling controls all ran off the edge. */
+  @media (max-width: 759px) {
+    .settings-modal {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    section { padding: 16px 14px; }
+
+    /* Two 1fr columns leave ~150px per card, less than the swatch plus name. */
+    .theme-grid { grid-template-columns: 1fr; }
+
+    /* The hint sits beside the title on one baseline; at this width it has to
+       drop under it or push the title out of the box. */
+    .section-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+    }
+
+    .section-hint { white-space: normal; }
+
+    /* Label + track + range is ~60 + track + 118px. Narrow the fixed columns
+       and let the range wrap rather than truncate to "9:00a – 5:0…". */
+    .hours-row { gap: 8px; }
+    .hours-row-label { width: 52px; }
+
+    .hours-range-label {
+      width: 96px;
+      font-size: var(--text-sm);
+    }
+
+    .hours-axis-row .hours-range-label-spacer { width: 96px; }
+
+    /* Label and segmented control side by side don't fit; stack them. */
+    .field-row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
   }
 </style>

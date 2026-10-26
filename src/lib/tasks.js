@@ -1,16 +1,19 @@
 import { MIN_BLOCK_MINUTES } from './constants.js';
 
-export function createTask(description, onset, peak, peakPressure, estimatedMinutes) {
-  const now = new Date();
+// `id` and `now` come from the caller, so the same operation builds the same
+// task wherever it is applied. onset and peak are copied: a caller's Date must
+// never be the stored one, or mutating it later changes the task (that is how
+// peaksLabel once truncated deadlines).
+export function createTask({ id, description, onset, peak, peakPressure, estimatedMinutes }, now) {
   return {
-    id: crypto.randomUUID(),
+    id,
     description,
     estimatedMinutes,
-    onset:           onset instanceof Date ? onset : new Date(onset),
-    peak:            peak  instanceof Date ? peak  : new Date(peak),
+    onset:           new Date(onset),
+    peak:            new Date(peak),
     peakPressure,
-    createdAt:       now,
-    lastModifiedAt:  now,
+    createdAt:       new Date(now),
+    lastModifiedAt:  new Date(now),
     completedAt:     null,
     scheduledBlocks: [],
     elapsedSeconds:  0,
@@ -23,8 +26,8 @@ export function createTask(description, onset, peak, peakPressure, estimatedMinu
   };
 }
 
-export function updateTask(task, patch) {
-  return { ...task, ...patch, lastModifiedAt: new Date() };
+export function updateTask(task, patch, now) {
+  return { ...task, ...patch, lastModifiedAt: new Date(now) };
 }
 
 /**

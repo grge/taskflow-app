@@ -1,10 +1,19 @@
 import { toISODate, getDaySchedule } from './calendar.js';
 
+// A task's blocks never overlap, so task, day and start identify a block.
+// Deriving the id rather than drawing a random one keeps the core
+// deterministic: replaying an operation on another device or on the backend
+// must produce the same blocks, ids included.
+export function blockId(taskId, date, startMinutes) {
+  return `${taskId}@${date}+${startMinutes}`;
+}
+
 export function createScheduledBlock(taskId, date, startMinutes, durationMinutes, opts = {}) {
+  const day = typeof date === 'string' ? date : toISODate(date);
   return {
-    id: crypto.randomUUID(),
+    id: blockId(taskId, day, startMinutes),
     taskId,
-    date: typeof date === 'string' ? date : toISODate(date),
+    date: day,
     startMinutes,
     durationMinutes,
     ...opts
@@ -115,13 +124,13 @@ export function computeFreeIntervals(visibleDays, blockingBlocks, fromDate, buff
   return intervals;
 }
 
-export function placeBlockOnTask(task, blocks) {
+export function placeBlockOnTask(task, blocks, now) {
   const arr = Array.isArray(blocks) ? blocks : [blocks];
-  return { ...task, scheduledBlocks: arr, lastModifiedAt: new Date() };
+  return { ...task, scheduledBlocks: arr, lastModifiedAt: new Date(now) };
 }
 
-export function removeBlocksForTask(task) {
-  return { ...task, scheduledBlocks: [], lastModifiedAt: new Date() };
+export function removeBlocksForTask(task, now) {
+  return { ...task, scheduledBlocks: [], lastModifiedAt: new Date(now) };
 }
 
 // Assigns each item a lane (0-indexed horizontal slot) and laneCount (how many

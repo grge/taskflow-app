@@ -262,17 +262,27 @@
 </div>
 
 <style>
+  /* Fills the panel so the timeline stretches to the bottom instead of ending
+     at 5pm with a few hundred px of dead panel below it — most visible on the
+     phone, where the Today pane is the whole screen. */
   .today-planner {
     display: flex;
     flex-direction: column;
+    flex: 1;
+    min-height: 0;
     border-bottom: 1px solid var(--color-border);
   }
 
   /* ── Controls ── */
+  /* Wraps rather than clips: the row is ~440px of content and the panel is
+     narrower than that well above the phone breakpoint — at 768px the planner
+     column is only 468px, which clipped "+ Block" off the end. */
   .planner-controls {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
     padding: 10px 16px;
     border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
@@ -282,6 +292,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    min-width: 0;
   }
 
   /* Button group: ‹  Today  › */
@@ -378,8 +389,14 @@
   }
 
   /* ── Body ── */
+  /* flex-grow fills a tall panel; align-items: stretch on a row sizes both
+     children to the tallest, so the gutter tracks the card's min-height when
+     the panel is shorter than the card (a landscape phone) instead of
+     collapsing to the container and desyncing the hour labels. */
   .planner-body {
     display: flex;
+    align-items: stretch;
+    flex: 1 0 auto;
     padding: 16px 12px 16px 0;
     gap: 0;
   }
@@ -635,5 +652,56 @@
   @media (pointer: coarse) {
     .fixed-block,
     .task-block { touch-action: pan-y; }
+  }
+
+  /* ── Phone toolbar ────────────────────────────────────────────────────────
+     The single row is ~440px of content in a 390px viewport, and the document
+     doesn't scroll sideways, so "+ Block" was simply unreachable. Stack it:
+     title row on top, actions on their own row below, each free to wrap. */
+  @media (max-width: 759px) {
+    .planner-controls {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      padding: 10px 12px;
+    }
+
+    .planner-title {
+      justify-content: flex-start;
+      min-width: 0;
+    }
+
+    /* The long label carries the day; the short date beside it is redundant
+       once the row is this tight. */
+    .planner-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .planner-date { display: none; }
+
+    .planner-actions {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    /* Auto-schedule is the primary action and takes the leftover width; the
+       other two size to their text rather than stretching into it. */
+    .planner-actions { justify-content: flex-start; }
+    .planner-actions .btn { flex: 0 0 auto; }
+    .planner-actions .btn-primary { flex: 1 1 auto; }
+  }
+
+  /* Toolbar controls are 24–26px tall — well under a fingertip. Grow the hit
+     area the way .btn-icon does globally, here by real padding since these
+     buttons sit in a flow row rather than over a card. */
+  @media (pointer: coarse) {
+    .planner-actions .btn { min-height: 40px; padding-block: 8px; }
+
+    .day-nav-btn { padding: 0 16px; min-height: 40px; }
+
+    .day-nav-today { padding: 4px 14px; min-height: 40px; }
   }
 </style>

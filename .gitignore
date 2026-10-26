@@ -26,3 +26,6 @@ localstorage-backup.json
 TaskFlow.html
 TaskFlow Themes.dc.html
 screenshot-mockups.mjs
+
+# Local sync-backend data (npm run server)
+data/

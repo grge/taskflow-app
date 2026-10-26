@@ -1,43 +1,34 @@
-import { loadState } from '../lib/persistence.js';
-import { DEFAULT_WORK_SCHEDULE } from '../lib/constants.js';
-import { getDaySchedule, parseLocalDate } from '../lib/calendar.js';
-import { revalidateScheduleAfterHoursChange } from './tasks.svelte.js';
+// Work hours and fixed blocks. Mutations dispatch operations to the domain
+// core through data.svelte.js; the exports are the app's existing store API.
 
-const _initialState = loadState();
-
-let _workSchedule = $state(_initialState.workSchedule ?? DEFAULT_WORK_SCHEDULE);
-let _fixedBlocks  = $state(_initialState.fixedBlocks ?? []);
+import { data, dispatch } from './data.svelte.js';
 
 export const workSchedule = {
-  get value() { return _workSchedule; },
-  get days()  { return _workSchedule.days; }
+  get value() { return data.workSchedule; },
+  get days()  { return data.workSchedule.days; }
 };
 
 export const fixedBlocks = {
-  get value() { return _fixedBlocks; }
+  get value() { return data.fixedBlocks; }
 };
 
+// Also unschedules task blocks and drops fixed blocks the new hours invalidate.
 export function updateWorkSchedule(newSchedule) {
-  _workSchedule = newSchedule;
-  revalidateScheduleAfterHoursChange(newSchedule);
-  _fixedBlocks = _fixedBlocks.filter(b => {
-    const day = getDaySchedule(parseLocalDate(b.date), newSchedule);
-    return !!day && b.startMinutes >= day.startMinutes && b.startMinutes + b.durationMinutes <= day.endMinutes;
-  });
+  dispatch('hours.update', { schedule: newSchedule });
 }
 
 export function addFixedBlock(block) {
-  _fixedBlocks = [..._fixedBlocks, block];
+  dispatch('block.add', { block });
 }
 
 export function removeFixedBlock(id) {
-  _fixedBlocks = _fixedBlocks.filter(b => b.id !== id);
+  dispatch('block.remove', { id });
 }
 
 export function editFixedBlock(id, patch) {
-  _fixedBlocks = _fixedBlocks.map(b => b.id === id ? { ...b, ...patch } : b);
+  dispatch('block.edit', { id, patch });
 }
 
 export function getFixedBlocksForDate(dateStr) {
-  return _fixedBlocks.filter(b => b.date === dateStr);
+  return data.fixedBlocks.filter(b => b.date === dateStr);
 }
