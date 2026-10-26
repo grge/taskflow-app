@@ -18,6 +18,10 @@ let _pane           = $state('today'); // 'tasks' | 'today' | 'upcoming'
 // The date currently shown in the day planner (defaults to today, cannot go before today)
 let _plannerDate    = $state(toISODate(new Date()));
 
+// A connect link (#connect=…) opened this page: { url, token } for Settings to
+// fill in and ask about. Never saved; it is gone once Settings has read it.
+let _connectLink    = $state.raw(null);
+
 export const dragState = {
   get value() { return _dragState; }
 };
@@ -141,4 +145,12 @@ export function retreatPlannerDay(schedule) {
 
 export function resetPlannerToToday() {
   _plannerDate = toISODate(new Date());
+}
+
+export const connectLink = {
+  get value() { return _connectLink; }
+};
+
+export function setConnectLink(link) {
+  _connectLink = link;
 }

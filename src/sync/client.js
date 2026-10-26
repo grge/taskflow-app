@@ -6,8 +6,8 @@
 // backend's state.
 //
 // Plain fetch and WebSocket, so the same code runs in the browser and in Node
-// (the tests drive real devices against a real server with it). The app wires
-// it to its store in phase 4; until then local-only mode doesn't use it.
+// (the tests drive real devices against a real server with it). The app's
+// data store (src/stores/data.svelte.js) runs one while a backend is connected.
 //
 //   const client = createSyncClient({ url, token, replica, onChange, onPersist, ... });
 //   client.start();

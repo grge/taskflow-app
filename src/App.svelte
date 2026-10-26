@@ -1,9 +1,12 @@
 <script>
-  import { activeModal, activeTab, setActiveTab, openModal, pane, setPane, dragState } from './stores/ui.svelte.js';
+  import { activeModal, activeTab, setActiveTab, openModal, pane, setPane, dragState, setConnectLink } from './stores/ui.svelte.js';
   import { paneTabFromPoint } from './lib/dnd-hittest.js';
   import { activeTasks, initPersistence } from './stores/tasks.svelte.js';
   import { initClock } from './stores/clock.svelte.js';
   import { initTheme } from './stores/theme.svelte.js';
+  import { sync, dismissNotice } from './stores/data.svelte.js';
+  import { parseConnectLink } from './sync/connect.js';
+  import { describeSync } from './lib/sync-status.js';
   import TaskList from './lib/components/TaskList.svelte';
   import TodayPlanner from './lib/components/TodayPlanner.svelte';
   import OutlookSection from './lib/components/OutlookSection.svelte';
@@ -19,6 +22,17 @@
   initPersistence();
   initClock();
   initTheme();
+
+  // A connect link (taskflow-server token create --link). Take the token out
+  // of the address bar and history at once, and let Settings ask about it.
+  const link = parseConnectLink(location.hash);
+  if (link) {
+    history.replaceState(null, '', location.pathname + location.search);
+    setConnectLink(link);
+    setActiveTab('settings');
+  }
+
+  let syncShown = $derived(describeSync(sync.status, sync.pending));
 
   let totalCount       = $derived(activeTasks.value.length);
   let unscheduledCount = $derived(activeTasks.value.filter(t => !t.scheduledBlocks.length).length);
@@ -88,7 +102,24 @@
         <span class="task-counter">{totalCount} total · {unscheduledCount} unscheduled</span>
       {/if}
     </div>
+
+    {#if sync.connected}
+      <button
+        class="sync-pill tone-{syncShown.tone}"
+        onclick={() => setActiveTab('settings')}
+        title={syncShown.long}
+        aria-label="Sync: {syncShown.long}"
+        data-testid="sync-pill"
+      ><span class="sync-pill-dot"></span><span class="sync-pill-label">{syncShown.short}</span></button>
+    {/if}
   </header>
+
+  {#each sync.notices as notice (notice.id)}
+    <div class="sync-notice" role="status">
+      <span>{notice.message}</span>
+      <button class="sync-notice-close" onclick={() => dismissNotice(notice.id)} aria-label="Dismiss">×</button>
+    </div>
+  {/each}
 
   {#if activeTab.value === 'plan'}
     <main
@@ -230,6 +261,60 @@
     font-size: 12px;
     color: var(--color-text-muted);
     font-weight: 500;
+  }
+
+  /* ── Sync ── */
+  .sync-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .sync-pill:hover { background: var(--color-panel); color: var(--color-text); }
+
+  .sync-pill-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-text-faint);
+  }
+
+  .tone-ok    .sync-pill-dot { background: var(--color-success); }
+  .tone-busy  .sync-pill-dot { background: var(--color-accent); }
+  .tone-error .sync-pill-dot { background: var(--color-danger); }
+  .sync-pill.tone-error { color: var(--color-danger); border-color: var(--color-danger); }
+
+  .sync-notice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 20px;
+    background: var(--color-accent-tint);
+    border-bottom: 1px solid var(--color-accent-border);
+    font-size: 13px;
+    color: var(--color-text);
+    flex-shrink: 0;
+  }
+
+  .sync-notice span { flex: 1; }
+
+  .sync-notice-close {
+    border: none;
+    background: none;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: 0 4px;
   }
 
   /* ── Plan layout ── */
@@ -427,6 +512,10 @@
     .tab-plan { display: none; }
     .header-meta { display: none; }
     .nav-tabs { margin-left: auto; }
+    /* The dot alone; its colour carries the state and a tap opens Settings. */
+    .sync-pill { padding: 8px; border: none; }
+    .sync-pill-label { display: none; }
+    .sync-notice { padding: 8px max(12px, env(safe-area-inset-left, 0px)); }
     .nav-tab { padding: 5px 10px; }
   }
 
