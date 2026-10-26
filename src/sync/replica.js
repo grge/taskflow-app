@@ -14,6 +14,7 @@
 // same state gives the same result on any device and on the backend.
 
 import { apply } from '../core/apply.js';
+import { stateHash } from '../core/state.js';
 
 const applyOp = (state, op) => apply(state, op, { now: new Date(op.at) });
 
@@ -60,48 +61,60 @@ export function commitLocal(replica) {
   return replica.pending.length ? { ...replica, base: currentState(replica), pending: [] } : replica;
 }
 
-// Operations the backend applied, in its order, ending at `version`. They
-// become the new base; pending operations the backend has now applied are
-// removed by id and the rest replay on top.
+// Operations the backend applied, in its order, ending at `version`, with the
+// hash of the backend's state after them. They become the new base; pending
+// operations the backend has now applied are removed by id and the rest replay
+// on top.
 //
 // Returns { replica, dropped, gap, diverged }:
 //   gap      — the batch doesn't follow this replica's version, so some were
 //              missed. Nothing changes; fetch the operations since `version`.
-//   diverged — the core threw on an operation the backend accepted, so this
-//              device can't reproduce the backend's state. Nothing changes;
-//              reload the full state (rebase).
-export function receive(replica, { version, ops }) {
+//   diverged — this device can't reproduce the backend's state: the core threw
+//              on an operation the backend accepted, or replaying the batch
+//              gave a different hash (app and backend run different cores).
+//              Nothing changes; reload the full state (rebase).
+export function receive(replica, { version, ops, hash }) {
   const none = { replica, dropped: [], gap: false, diverged: false };
   if (replica.version !== null && version - ops.length !== replica.version) return { ...none, gap: true };
 
+  let next;
   // The common case: the backend applied exactly our oldest pending operations,
-  // in order, on the state we based them on, so its result is the one cached.
+  // in order, with the times we gave them, on the state we based them on, so
+  // its result is the one cached. The hash check below still covers a backend
+  // whose core computes something different.
   const k = ops.length;
-  if (k <= replica.pending.length && ops.every((op, i) => op.id === replica.pending[i].op.id)) {
+  if (k <= replica.pending.length && ops.every((op, i) => op.id === replica.pending[i].op.id && op.at === replica.pending[i].op.at)) {
     const base = k ? replica.pending[k - 1].after : replica.base;
-    return { ...none, replica: { base, version, pending: replica.pending.slice(k) } };
+    next = { replica: { base, version, pending: replica.pending.slice(k) }, dropped: [] };
+  } else {
+    let base = replica.base;
+    try {
+      for (const op of ops) base = applyOp(base, op).state;
+    } catch {
+      return { ...none, diverged: true };
+    }
+    const applied = new Set(ops.map(op => op.id));
+    next = replay(base, version, pendingOps(replica).filter(op => !applied.has(op.id)));
   }
 
-  let base = replica.base;
-  try {
-    for (const op of ops) base = applyOp(base, op).state;
-  } catch {
-    return { ...none, diverged: true };
-  }
-  const applied = new Set(ops.map(op => op.id));
-  const rest = pendingOps(replica).filter(op => !applied.has(op.id));
-  return { ...none, ...replay(base, version, rest) };
+  if (hash && stateHash(next.replica.base) !== hash) return { ...none, diverged: true };
+  return { ...none, ...next };
 }
 
 // Replace the base with a full state from the backend (first connect, history
-// pruned, or diverged) and replay what is still pending on top.
-export function rebase(replica, { state, version }) {
-  return replay(state, version, pendingOps(replica));
+// pruned, or diverged) and replay what is still pending on top. `applied`
+// names pending operations the state already includes, which must not be
+// replayed a second time.
+export function rebase(replica, { state, version }, applied = []) {
+  const skip = new Set(applied);
+  return replay(state, version, pendingOps(replica).filter(op => !skip.has(op.id)));
 }
 
-// Drop a pending operation the backend rejected, replaying the rest.
-export function reject(replica, opId) {
-  return replay(replica.base, replica.version, pendingOps(replica).filter(op => op.id !== opId));
+// Remove pending operations, replaying the rest: ones the backend rejected, or
+// ones it reports already applied within the current base.
+export function forget(replica, opIds) {
+  const drop = new Set(opIds);
+  return replay(replica.base, replica.version, pendingOps(replica).filter(op => !drop.has(op.id)));
 }
 
 // What persistence stores: the operations, not the cached states.

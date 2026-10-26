@@ -6,9 +6,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apply } from '../../src/core/apply.js';
-import { emptyState, reviveState, serializeState } from '../../src/core/state.js';
+import { emptyState, reviveState, serializeState, stateHash } from '../../src/core/state.js';
 import {
-  createReplica, currentState, pendingOps, applyLocal, commitLocal, receive, rebase, reject, toStored
+  createReplica, currentState, pendingOps, applyLocal, commitLocal, receive, rebase, forget, toStored
 } from '../../src/sync/replica.js';
 
 const minute = n => new Date(2026, 9, 28, 10, n).toISOString();
@@ -29,9 +29,9 @@ function backend(state = emptyState()) {
       server.version += 1;
       server.log.push(o);
     }
-    return { version: server.version, ops };
+    return { version: server.version, ops, hash: stateHash(server.state) };
   };
-  server.since = v => ({ version: server.version, ops: server.log.slice(v) });
+  server.since = v => ({ version: server.version, ops: server.log.slice(v), hash: stateHash(server.state) });
   return server;
 }
 
@@ -139,12 +139,12 @@ test('rebase swaps in a full state and keeps what is pending', () => {
   assert.deepEqual(titles(res.replica), ['A', 'B', 'C']);
 });
 
-test('reject drops one pending operation and replays the rest', () => {
+test('forget drops pending operations and replays the rest', () => {
   let r = createReplica({ base: emptyState(), version: 0 }).replica;
   const bad = addTask('x', 'Rejected');
   r = local(r, bad);
   r = local(r, addTask('y', 'Kept'));
-  assert.deepEqual(titles(reject(r, bad.id).replica), ['Kept']);
+  assert.deepEqual(titles(forget(r, [bad.id]).replica), ['Kept']);
 });
 
 // What a reload does: the stored form goes through JSON and back.
@@ -167,4 +167,48 @@ test('a stored operation the core no longer knows is dropped on load, not fatal'
   assert.deepEqual(titles(replica), ['A', 'B']);
   assert.equal(dropped.length, 1);
   assert.equal(dropped[0].op.type, 'task.retired');
+});
+
+// A backend whose core computes something different (an older scheduler, say)
+// sends a hash this device can't reproduce. The device must not keep its own
+// answer, even when the batch is exactly its own operations.
+test('a hash this device can\'t reproduce marks it diverged, even on the fast path', () => {
+  let r = createReplica({ base: emptyState(), version: 0 }).replica;
+  const o = addTask('a', 'A');
+  r = local(r, o);
+  const honest = receive(r, { version: 1, ops: [o], hash: stateHash(currentState(r)) });
+  assert.equal(honest.diverged, false);
+  const skewed = receive(r, { version: 1, ops: [o], hash: 'not-our-hash' });
+  assert.equal(skewed.diverged, true);
+  assert.equal(skewed.replica, r);
+});
+
+// The backend may apply an operation at a different time than it was issued
+// (it clamps a time from a fast clock), so the fast path must not reuse a
+// result computed for the original time.
+test('an operation applied at another time is replayed, not reused', () => {
+  let r = createReplica({ base: emptyState(), version: 0 }).replica;
+  r = local(r, addTask('a', 'A'));
+  const ackAdd = backend().post(pendingOps(r));
+  r = receive(r, ackAdd).replica;
+  const mine = op('schedule.next', { id: 'a' }, new Date(2026, 9, 28, 10, 0).toISOString());
+  r = local(r, mine);
+  const server = backend(r.base);
+  server.version = 1;
+  const asApplied = { ...mine, at: new Date(2026, 9, 28, 13, 0).toISOString() };
+  const res = receive(r, server.post([asApplied]));
+  assert.equal(res.diverged, false);
+  assert.equal(currentState(res.replica).tasks[0].scheduledBlocks[0].startMinutes, 13 * 60);
+});
+
+test('rebase skips pending operations the new state already includes', () => {
+  const server = backend();
+  let r = createReplica({ base: emptyState(), version: 0 }).replica;
+  const mine = addTask('a', 'A');
+  r = local(r, mine);
+  r = local(r, addTask('b', 'B'));
+  server.post([mine]);
+  const res = rebase(r, { state: server.state, version: server.version }, [mine.id]);
+  assert.deepEqual(titles(res.replica), ['A', 'B']);
+  assert.deepEqual(pendingOps(res.replica).map(o => o.args.id), ['b']);
 });

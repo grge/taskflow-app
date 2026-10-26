@@ -163,6 +163,17 @@ test('task.add stamps from the operation and copies the dates it is given', () =
   assert.equal(s.tasks.length, 1);
 });
 
+test('adding an id that exists is a no-op, so a replayed add can\'t duplicate', () => {
+  const args = { id: 'n1', description: 'Once', onset: local(29, 10), peak: local(31, 10), peakPressure: 0.5, estimatedMinutes: 30 };
+  const once = run(state(), 'task.add', args).state;
+  const twice = run(once, 'task.add', { ...args, description: 'Twice' });
+  assert.equal(twice.state, once);
+  assert.equal(twice.result.description, 'Once');
+  const block = { id: 'f', date: TODAY, startMinutes: 600, durationMinutes: 30 };
+  const withBlock = run(state(), 'block.add', { block }).state;
+  assert.equal(run(withBlock, 'block.add', { block }).state, withBlock);
+});
+
 test('task.add accepts ISO strings, as operations arriving over the wire will carry', () => {
   const { result } = run(state(), 'task.add',
     { id: 'n', description: 'x', onset: local(29, 10).toISOString(), peak: local(31, 10).toISOString(), peakPressure: 0.5, estimatedMinutes: 30 });

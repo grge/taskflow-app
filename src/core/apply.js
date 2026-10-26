@@ -76,7 +76,11 @@ function rescaleBlocks(blocks, oldTotal, newTotal) {
 const handlers = {
 
   // addTask
+  // An id that already exists means this add was applied before (a replay),
+  // so it changes nothing rather than creating a second task with that id.
   'task.add'(state, args, { now }) {
+    const existing = state.tasks.find(t => t.id === args.id);
+    if (existing) return { state, result: existing };
     const task = createTask(args, now);
     return withTasks(state, [...state.tasks, task], task);
   },
@@ -346,6 +350,7 @@ const handlers = {
 
   // addFixedBlock
   'block.add'(state, { block }) {
+    if (state.fixedBlocks.some(b => b.id === block.id)) return unchanged(state);
     return { state: { ...state, fixedBlocks: [...state.fixedBlocks, block] }, result: undefined };
   },
 
