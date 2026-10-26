@@ -32,6 +32,7 @@ import { reorderAndBumpForward } from '../lib/outlook-scheduler.js';
 import { getDaySchedule, parseLocalDate } from '../lib/calendar.js';
 import { SNAP_MINUTES } from '../lib/constants.js';
 import { liveSeconds, withLiveElapsed } from './live.js';
+import { reviveState, checkStateData } from './state.js';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -356,6 +357,18 @@ const handlers = {
   // removeFixedBlock
   'block.remove'(state, { id }) {
     return { state: { ...state, fixedBlocks: state.fixedBlocks.filter(b => b.id !== id) }, result: undefined };
+  },
+
+  // ─── data ──────────────────────────────────────────────────────────────────
+
+  // Replace everything with an export file's contents, exactly as exported (no
+  // restamping), so export → import → export is byte-identical. An operation
+  // like any other so an import made while connected reaches the backend.
+  'data.import'(state, { data }) {
+    const problem = checkStateData(data);
+    if (problem) return { state, result: { ok: false, reason: problem } };
+    const next = reviveState(data);
+    return { state: next, result: { ok: true, tasks: next.tasks.filter(t => !t.isDeleted).length } };
   }
 };
 

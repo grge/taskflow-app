@@ -388,6 +388,93 @@ test('changes survive a reload', async () => {
   assertEqual(await page.locator('.task-block').count(), 1, 'rendered on the timeline');
 });
 
+// ─── export, import and the pending queue ────────────────────────────────────
+
+async function openSettings(page) {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.waitForTimeout(200);
+}
+
+async function exportFile(page) {
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export' }).click()]);
+  const { readFile } = await import('node:fs/promises');
+  return { name: download.suggestedFilename(), text: await readFile(await download.path(), 'utf8') };
+}
+
+async function importFile(page, text, name = 'taskflow-export.json') {
+  await page.locator('[data-testid="import-file"]').setInputFiles({ name, mimeType: 'application/json', buffer: Buffer.from(text) });
+  await page.waitForTimeout(300);
+}
+
+const rawStored = page => page.evaluate(() => localStorage.getItem('taskflow_v2'));
+
+test('export then import round-trips exactly', async () => {
+  const a = task('Alpha'), b = task('Bravo', { isLocked: true });
+  a.scheduledBlocks = [block(a, TODAY, 600)];
+  const fb = { id: 'fb-1', label: 'Standup', date: FRIDAY, startMinutes: 660, durationMinutes: 30 };
+  const { page } = await open({ tasks: [a, b], fixedBlocks: [fb] });
+  await openSettings(page);
+
+  const first = await exportFile(page);
+  assertEqual(first.name, `taskflow-${TODAY}.json`, 'file name');
+  assertEqual(JSON.stringify(JSON.parse(first.text)), await rawStored(page), 'export is what is stored');
+
+  // Change things, then bring the export back.
+  await page.getByRole('button', { name: 'Disable Wed' }).click();
+  await page.waitForTimeout(200);
+  assertEqual(await blocksOf(page, a.id), [], 'changed before import');
+  let asked = null;
+  page.once('dialog', d => { asked = d.message(); d.accept(); });
+  await importFile(page, first.text);
+  assert(asked?.includes('Replace your 2 tasks'), `asked before replacing, got ${asked}`);
+  assert((await page.locator('.import-status').textContent()).includes('Imported 2 tasks'), 'reported');
+  assertEqual(JSON.stringify(JSON.parse(first.text)), await rawStored(page), 'stored state is the export again');
+
+  const second = await exportFile(page);
+  assertEqual(second.text, first.text, 'second export is byte-identical');
+  await page.reload();
+  await page.waitForTimeout(300);
+  assertEqual(JSON.stringify(JSON.parse(first.text)), await rawStored(page), 'and survives a reload');
+  assertEqual(await page.locator('.task-card').count(), 2, 'rendered');
+});
+
+test('import refuses a file that is not an export', async () => {
+  const a = task('Alpha');
+  const { page } = await open({ tasks: [a] });
+  await openSettings(page);
+  const before = await rawStored(page);
+  let asked = false;
+  page.on('dialog', d => { asked = true; d.dismiss(); });
+  await importFile(page, '{"notes": []}', 'notes.json');
+  const status = page.locator('.import-status.error');
+  assert((await status.textContent()).includes('not a TaskFlow export'), 'explains why');
+  assertEqual(asked, false, 'refused before asking to replace anything');
+  assertEqual(await rawStored(page), before, 'nothing changed');
+});
+
+// A device that closes with operations still pending (offline, once a backend
+// is connected) reopens on base plus those operations. With no backend they
+// become final at once.
+test('operations pending at reload are replayed', async () => {
+  const a = task('Alpha');
+  const { page } = await open({ tasks: [a] });
+  const at = NOW.toISOString();
+  await page.evaluate(sync => localStorage.setItem('taskflow_sync', JSON.stringify(sync)), {
+    version: null,
+    base: { tasks: [a], workSchedule: undefined, activeTimer: null, fixedBlocks: [] },
+    pending: [
+      { id: 'op-1', type: 'task.add', at, tz: TZ, actor: 'app', args: { id: 'task-new', description: 'Bravo', onset: at, peak: new Date(+NOW + 2 * DAY).toISOString(), peakPressure: 0.5, estimatedMinutes: 30 } },
+      { id: 'op-2', type: 'schedule.next', at, tz: TZ, actor: 'app', args: { id: a.id } }
+    ]
+  });
+  await page.reload();
+  await page.waitForTimeout(400);
+  assertEqual(await page.locator('.task-card').count(), 2, 'both tasks shown');
+  assertEqual(await blocksOf(page, a.id), [[TODAY, 600, 60]], 'pending schedule.next replayed');
+  assertEqual((await storedTask(page, 'task-new')).description, 'Bravo', 'pending task.add replayed and saved');
+  assertEqual(await page.evaluate(() => localStorage.getItem('taskflow_sync')), null, 'queue folded in, with no backend');
+});
+
 // ─── runner ──────────────────────────────────────────────────────────────────
 
 async function waitForServer(url, ms = 20_000) {

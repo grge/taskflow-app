@@ -28,7 +28,7 @@ Most of what sync needs is already in place; three things are not. The schedulin
 | --- | --- | --- |
 | Store API | `tasks.svelte.js` and `schedule.svelte.js` export about 25 operations: `addTask`, `editTask`, `completeTask`, `scheduleTaskNext`, `autoScheduleAll`, `commitOutlookDrop`, `startTimer`, `addFixedBlock`, `updateWorkSchedule` and more | Already shaped like a command set. These become the operations every client sends |
 | Scheduling logic | `scheduler.js`, `scheduling.js`, `envelope.js`, `calendar.js`, `outlook-scheduler.js` have no DOM dependency | The backend can run the same code, so an API call to "schedule this" matches the app's button exactly |
-| IDs | Tasks, blocks and fixed blocks get `crypto.randomUUID()` on the client | Records can be created offline without asking the backend for an ID |
+| IDs | Tasks and fixed blocks get `crypto.randomUUID()` on the client; scheduled blocks get an id derived from task, day and start (since phase 2) | Records can be created offline without asking the backend for an ID, and an operation replayed elsewhere creates the same blocks |
 | Deletes | Soft (`isDeleted: true`) | Deletions travel as ordinary updates instead of vanishing |
 | Saving | `saveState` writes tasks, work schedule, timer and fixed blocks as one localStorage blob on every change | Syncing that blob would let two devices silently overwrite each other. Needs replacing with operations |
 | Clock | The scheduler calls `new Date()` throughout | Results depend on when the code happens to run, so the backend and a device can't be guaranteed to agree. `now` must be passed in |
@@ -92,6 +92,8 @@ The pieces:
 
 Passing the clock in is what makes the core portable. With `now` fixed by the operation, a device and the backend compute the same slot for the same operation, and the logic becomes testable for the first time.
 
+The core is deterministic as well as clock-free: it draws no random numbers, so the same operation on the same state gives the same state everywhere, ids included. Blocks the schedulers create take an id derived from task, day and start minute rather than a random one; a task's blocks never overlap, so that is unique.
+
 Operations are absolute where they can be. Locking a task is `task.setLock { locked: true }`, not a toggle, because a toggle replayed on newer state can flip the wrong way. `task.add` and `block.add` carry the client-generated id, so later operations that refer to a new record still work after a replay.
 
 The operation catalogue, grouped:
@@ -102,8 +104,9 @@ The operation catalogue, grouped:
 | Scheduling | `schedule.next`, `schedule.place`, `schedule.unschedule`, `schedule.auto`, `schedule.clear`, `schedule.outlookMove` |
 | Timer | `timer.start`, `timer.pause`, `timer.resume`, `timer.finish` |
 | Settings | `hours.update`, `block.add`, `block.edit`, `block.remove` |
+| Data | `data.import` (replace everything with an export file's contents) |
 
-Each maps one to one onto an existing store function, so the refactor moves code rather than redesigning it. `schedule.place` is what a drag commits; `schedule.next` is the ✦ button.
+Each maps one to one onto an existing store function (except `data.import`, added in phase 2), so the refactor moves code rather than redesigning it. `schedule.place` is what a drag commits; `schedule.next` is the ✦ button.
 
 ## Sync protocol
 
@@ -116,6 +119,8 @@ One round trip:
 3. The backend applies it with `apply`, increments the version, appends it to the log, and acknowledges with the new version.
 4. The backend pushes the new operations to every other connected device over a WebSocket.
 5. A device receiving newer state replaces its base state and replays its still-pending operations on top. Anything the backend already applied is dropped from the queue by operation `id`.
+
+On the device this is `src/sync/replica.js`: a pure replica of `{ base, version, pending }` whose current state is `base` with `pending` replayed on top. Local-only mode acknowledges each operation as soon as it is applied, so the queue is empty between operations. When the backend's batch is exactly the device's oldest pending operations in order, the replica reuses the state it already computed instead of replaying.
 
 Behaviour in the awkward cases:
 
@@ -306,6 +311,8 @@ The data lives on a server you control, readable only with tokens you created. Y
 ## Build plan
 
 Five phases, each shippable on its own, plus an optional sixth. Phases 1 and 2 need no backend and improve the app as it is, so they're the right place to start.
+
+**Status:** phases 1 and 2 are done. `npm test` covers the core, the replica and the export format, and `npm run test:e2e` covers the app.
 
 | # | Phase | Delivers | Verified by |
 | --- | --- | --- | --- |

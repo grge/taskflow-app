@@ -1,4 +1,5 @@
 export const STORAGE_KEY = 'taskflow_v2';
+export const SYNC_STORAGE_KEY = 'taskflow_sync';
 export const SNAP_MINUTES = 15;
 // Smallest block the scheduler will place. Remaining time is shown to the user
 // clamped at 0 ("0m left"), but a task with near-zero remaining still needs a

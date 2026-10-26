@@ -65,6 +65,7 @@ test('rejects an unknown operation and a missing clock', () => {
 test('the catalogue matches the design doc', () => {
   assert.deepEqual([...OP_TYPES].sort(), [
     'block.add', 'block.edit', 'block.remove',
+    'data.import',
     'hours.update',
     'schedule.auto', 'schedule.clear', 'schedule.next', 'schedule.outlookMove', 'schedule.place', 'schedule.unschedule',
     'task.add', 'task.complete', 'task.delete', 'task.edit', 'task.restore', 'task.setElapsed', 'task.setLock', 'task.setRemaining',
@@ -121,6 +122,23 @@ test('never mutates its input, Dates included', () => {
     run(s, type, args);
     assert.equal(JSON.stringify(s), frozen, `${type} changed its input`);
     assert.deepEqual(s.tasks.map(t => [+t.onset, +t.peak, +t.createdAt, +t.lastModifiedAt]), times, `${type} mutated a Date`);
+  }
+});
+
+// Replaying an operation on another device or on the backend must give the same
+// state, ids included, or the copies drift apart one block id at a time.
+test('is deterministic: the same operation on the same state gives the same state', () => {
+  const a = task('A'), b = task('B', { peakPressure: 0.9 }), c = task('C', { estimatedMinutes: 600 });
+  a.scheduledBlocks = [blk(a, TOMORROW, 540)];
+  const s = state({ tasks: [a, b, c] });
+  for (const [type, args] of [
+    ['schedule.next', { id: c.id }], ['schedule.auto', {}],
+    ['schedule.outlookMove', { id: b.id, sourceDate: null, targetDate: TOMORROW, insertBeforeId: a.id }]
+  ]) {
+    const first = run(s, type, args).state;
+    const second = run(s, type, args).state;
+    assert.deepEqual(second, first, type);
+    assert.notEqual(first.tasks, s.tasks, `${type} placed something`);
   }
 });
 
@@ -353,4 +371,32 @@ test('task.setElapsed rebases a live timer at the operation time', () => {
   let s = run(state({ tasks: [a] }), 'timer.start', { id: a.id }, local(28, 10)).state;
   s = run(s, 'task.setElapsed', { id: a.id, seconds: 900 }, local(28, 10, 30)).state;
   assert.deepEqual(s.activeTimer, { taskId: a.id, startedAt: local(28, 10, 30), baseSeconds: 900 });
+});
+
+// ─── data.import ─────────────────────────────────────────────────────────────
+
+test('data.import replaces everything with the file, unrestamped', () => {
+  const kept = task('Imported', { isLocked: true });
+  kept.scheduledBlocks = [blk(kept, FRIDAY, 600)];
+  const file = JSON.parse(JSON.stringify({
+    tasks: [kept], workSchedule: { ...DEFAULT_WORK_SCHEDULE, bufferMinutes: 5 }, activeTimer: null,
+    fixedBlocks: [{ id: 'f', date: FRIDAY, startMinutes: 720, durationMinutes: 30 }]
+  }));
+  const { state: s, result } = run(state({ tasks: [task('Old')] }), 'data.import', { data: file });
+  assert.deepEqual(result, { ok: true, tasks: 1 });
+  assert.deepEqual(s.tasks.map(t => t.description), ['Imported']);
+  assert.ok(s.tasks[0].peak instanceof Date);
+  assert.equal(+s.tasks[0].lastModifiedAt, +kept.lastModifiedAt, 'not restamped');
+  assert.equal(s.workSchedule.bufferMinutes, 5);
+  assert.deepEqual(s.fixedBlocks.map(f => f.id), ['f']);
+});
+
+test('data.import refuses something that is not an export, changing nothing', () => {
+  const s = state({ tasks: [task('Keep me')] });
+  for (const bad of [null, [], { notes: [] }, { tasks: [{ description: 'no id' }] }, { tasks: [{ id: 'x', description: 'x', onset: 'soon', peak: 'later' }] }]) {
+    const r = run(s, 'data.import', { data: bad });
+    assert.equal(r.result.ok, false, JSON.stringify(bad));
+    assert.equal(typeof r.result.reason, 'string');
+    assert.equal(r.state, s);
+  }
 });
