@@ -1,5 +1,5 @@
 import { getVisibleWorkDays, parseLocalDate } from './calendar.js';
-import { computeFreeIntervals } from './scheduling.js';
+import { computeFreeIntervals, blockId } from './scheduling.js';
 import { schedulableMinutes } from './tasks.js';
 import { SCHEDULING_HORIZON_DAYS } from './constants.js';
 
@@ -67,7 +67,7 @@ export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, sched
 
     const iv = intervals[placedIdx];
     blocks.set(task.id, {
-      id:              crypto.randomUUID(),
+      id:              blockId(task.id, iv.date, iv.startMinutes),
       taskId:          task.id,
       date:            iv.date,
       startMinutes:    iv.startMinutes,

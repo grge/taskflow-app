@@ -1,10 +1,19 @@
 import { toISODate, getDaySchedule } from './calendar.js';
 
+// A task's blocks never overlap, so task, day and start identify a block.
+// Deriving the id rather than drawing a random one keeps the core
+// deterministic: replaying an operation on another device or on the backend
+// must produce the same blocks, ids included.
+export function blockId(taskId, date, startMinutes) {
+  return `${taskId}@${date}+${startMinutes}`;
+}
+
 export function createScheduledBlock(taskId, date, startMinutes, durationMinutes, opts = {}) {
+  const day = typeof date === 'string' ? date : toISODate(date);
   return {
-    id: crypto.randomUUID(),
+    id: blockId(taskId, day, startMinutes),
     taskId,
-    date: typeof date === 'string' ? date : toISODate(date),
+    date: day,
     startMinutes,
     durationMinutes,
     ...opts
