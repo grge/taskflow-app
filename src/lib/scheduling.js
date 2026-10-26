@@ -115,13 +115,13 @@ export function computeFreeIntervals(visibleDays, blockingBlocks, fromDate, buff
   return intervals;
 }
 
-export function placeBlockOnTask(task, blocks) {
+export function placeBlockOnTask(task, blocks, now) {
   const arr = Array.isArray(blocks) ? blocks : [blocks];
-  return { ...task, scheduledBlocks: arr, lastModifiedAt: new Date() };
+  return { ...task, scheduledBlocks: arr, lastModifiedAt: new Date(now) };
 }
 
-export function removeBlocksForTask(task) {
-  return { ...task, scheduledBlocks: [], lastModifiedAt: new Date() };
+export function removeBlocksForTask(task, now) {
+  return { ...task, scheduledBlocks: [], lastModifiedAt: new Date(now) };
 }
 
 // Assigns each item a lane (0-indexed horizontal slot) and laneCount (how many

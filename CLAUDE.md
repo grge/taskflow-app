@@ -8,9 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev      # dev server at http://localhost:5173
 npm run build    # production build → dist/
 npm run preview  # preview production build
+npm test         # domain-core unit tests (node:test), run under five timezones
+npm run test:e2e # build, then the Playwright smoke suite against vite preview
 ```
 
-No lint or test scripts are configured. Playwright is installed but has no active test suite.
+No lint is configured. `test:e2e` uses the installed Playwright Chromium; set `PW_CHROMIUM` to point it at a specific browser binary. The smoke suite pins the clock and timezone and asserts on what lands in localStorage, so it is the characterization net for refactors.
 
 ## Architecture
 
@@ -18,8 +20,9 @@ TaskFlow is a Svelte 5 SPA (no SvelteKit) that schedules tasks by minimizing acc
 
 ### Layer overview
 
+- **`src/core/`** — the domain core: `apply(state, op, { now }) → { state, result }` (`apply.js`) is the only place app data changes. An op is `{ id, type, args, at, tz, actor }`; `OP_TYPES` is the catalogue (`task.*`, `schedule.*`, `timer.*`, `hours.update`, `block.*`). It is pure: it never reads the clock (time comes from `context.now`, the op's `at`), never mutates its input, and returns untouched slices by identity. Times are host-local by contract. `live.js` folds an unflushed timer into elapsed time. This is phase 1 of `SYNC-AND-API-DESIGN.md`: the same core will run on a device and on a backend.
 - **`src/lib/`** — pure logic: `envelope.js` (pressure math: `pAt`, `accumulatedPressure`, `getPressureTier`, `pToColor`), `scheduler.js` (auto-scheduler: greedy + local search), `outlook-scheduler.js` (reorder/bump-forward packing for the Outlook backlog), `scheduling.js` (block placement, multi-day splitting), `calendar.js` (work-day navigation, date formatting), `dnd.js` (drag-and-drop Svelte actions), `persistence.js` (localStorage load/save/migration), `tasks.js` (task factory), `constants.js` (storage key, pressure scale/color stops, default work schedule)
-- **`src/stores/`** — Svelte 5 rune-based state: `tasks.svelte.js`, `schedule.svelte.js` (work hours + fixed blocks), `ui.svelte.js` (active tab/modal), `clock.svelte.js` (ticking now/today), `estimation.svelte.js` (learned duration multiplier), `theme.svelte.js` (selected color theme), `layout.svelte.js` (manually resized task-panel width)
+- **`src/stores/`** — Svelte 5 rune-based state. `data.svelte.js` holds the four persisted slices (`tasks`, `workSchedule`, `fixedBlocks`, `activeTimer`) as `$state.raw` and exposes `dispatch(type, args)`, which stamps an op and runs it through the core; `tasks.svelte.js` and `schedule.svelte.js` are thin wrappers over `dispatch` with the long-standing function names. Others: `ui.svelte.js` (active tab/modal; `activeTimer` re-exports the data store), `clock.svelte.js` (ticking now/today), `estimation.svelte.js` (learned duration multiplier), `theme.svelte.js` (selected color theme), `layout.svelte.js` (manually resized task-panel width)
 - **`src/lib/components/`** — UI: `App.svelte` is the root shell with Plan/Insights/Settings tabs; `TodayPlanner.svelte` is today's vertical timeline; `OutlookSection.svelte` is the future-day backlog with drag-to-reorder; `TaskList.svelte`/`TaskRow.svelte` is the task panel; `EnvelopeEditor.svelte` is the drag-to-edit onset/peak chart; `AddTaskModal.svelte`/`AddBlockModal.svelte`/`SettingsModal.svelte`/`InsightsModal.svelte`; `TimerBar.svelte` for active time tracking; `MobileNav.svelte` is the phone bottom nav; `PanelResizer.svelte` is the task-panel drag handle
 
 ### Key conventions
@@ -30,11 +33,11 @@ TaskFlow is a Svelte 5 SPA (no SvelteKit) that schedules tasks by minimizing acc
 
 **Multi-day block splitting:** Tasks can span multiple days; blocks carry `partIndex`/`totalParts`. Grab-offset logic differs: single blocks use pixel offset (`grabOffsetPx`), split blocks use time offset (`grabOffsetMinutes`) with `retreatWork()`.
 
-**Auto-scheduler:** Greedy packing first, then binary-search local optimization. Uses `estimationMultiplier` (median of elapsed/estimated ratios from completed tasks, prior 1.2× until 5 observations) to scale durations before packing. The Outlook backlog uses a separate, simpler sequential-packing scheduler (`outlook-scheduler.js`) for reorder/bump-forward, spilling overflow to subsequent work days.
+**Auto-scheduler:** Greedy packing first, then binary-search local optimization. `estimationMultiplier` (median of elapsed/estimated ratios from completed tasks, prior 1.2× until 5 observations) is computed in `estimation.svelte.js` but is only displayed in Insights; it is not applied to durations when packing. The Outlook backlog uses a separate, simpler sequential-packing scheduler (`outlook-scheduler.js`) for reorder/bump-forward, spilling overflow to subsequent work days.
 
 **Timer:** Single `activeTimer` state: `{ taskId, startedAt, baseSeconds }`. `startedAt` is `null` when paused. Display = `baseSeconds + (now - startedAt)`. Written to `task.elapsedSeconds` on pause/stop.
 
-**Pressure model:** Each task has `onset`, `peak` (Dates) and `peakPressure` (0–1). `pAt()` rises via a smoothstep curve from 0 at onset to `peakPressure` at peak, then holds flat. Five tiers (Low/Building/Elevated/High/Critical) and a matching 6-stop color gradient (green → dark red) are defined in `constants.js` (`PRESSURE_SCALE`, `ENVELOPE_COLOR_STOPS`). `EnvelopeEditor.svelte` lets onset/peak/peakPressure be dragged directly on a 7-day chart — there are no presets.
+**Pressure model:** Each task has `onset`, `peak` (Dates) and `peakPressure` (0–1). `pAt()` rises linearly from 0 at onset to `peakPressure` at peak, then holds flat (deliberately piecewise linear; the editor's drawn curve is smoothed on purpose and is not the model). Five tiers (Low/Building/Elevated/High/Critical) and a matching 6-stop color gradient (green → dark red) are defined in `constants.js` (`PRESSURE_SCALE`, `ENVELOPE_COLOR_STOPS`). `EnvelopeEditor.svelte` lets onset/peak/peakPressure be dragged directly on a 7-day chart — there are no presets.
 
 **Task list order:** Insertion order is preserved (sorted-by-pressure was reverted — it was disorienting in practice).
 

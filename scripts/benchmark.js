@@ -150,7 +150,7 @@ function withSilentScheduler(fn) {
 
 function runHeuristic(tasks, schedule) {
   const t0 = performance.now();
-  const blocks = withSilentScheduler(() => autoSchedule(tasks, schedule));
+  const blocks = withSilentScheduler(() => autoSchedule(tasks, schedule, [], new Date()));
   const ms = performance.now() - t0;
   const scheduled = blocks.length ? new Set(blocks.map(b => b.taskId)).size : 0;
   const cost = blocks.length ? totalCost(blocks, tasks) : Infinity;
@@ -167,7 +167,7 @@ function runTrial(tasks, schedule, label) {
   const estimatedMB = (8 * (1 << Math.min(n, 30))) / (1024 * 1024);
 
   const t0 = performance.now();
-  const heuristicBlocks = withSilentScheduler(() => autoSchedule(tasks, schedule));
+  const heuristicBlocks = withSilentScheduler(() => autoSchedule(tasks, schedule, [], new Date()));
   const heuristicTime = performance.now() - t0;
   const heuristicCost = heuristicBlocks.length ? totalCost(heuristicBlocks, tasks) : Infinity;
   const scheduled = heuristicBlocks.length ? new Set(heuristicBlocks.map(b => b.taskId)).size : 0;
@@ -230,7 +230,7 @@ if (exportFile) {
   let skipped = 0;
   for (let trial = 0; trial < 50; trial++) {
     const tasks = Array.from({ length: 15 }, (_, i) => randomTask(i, now));
-    const blocks = withSilentScheduler(() => autoSchedule(tasks, DEFAULT_SCHEDULE));
+    const blocks = withSilentScheduler(() => autoSchedule(tasks, DEFAULT_SCHEDULE, [], new Date()));
     if (!blocks.length || new Set(blocks.map(b => b.taskId)).size < tasks.length) { skipped++; continue; }
     const hCost = totalCost(blocks, tasks);
     const oCost = exactDP(tasks, DEFAULT_SCHEDULE);

@@ -20,7 +20,7 @@ import { SCHEDULING_HORIZON_DAYS } from './constants.js';
 //
 // Returns { reordered: Task[], blocks: Map<taskId, ScheduledBlock>,
 //           unplaceable: taskId[] }
-export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, schedule, occupiedBlocks, date) {
+export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, schedule, occupiedBlocks, date, now) {
   const movedTask    = orderedTasks.find(t => t.id === movedTaskId);
   const withoutMoved = orderedTasks.filter(t => t.id !== movedTaskId);
   const reordered    = [
@@ -33,7 +33,7 @@ export function reorderAndBumpForward(orderedTasks, movedTaskId, newIndex, sched
   const unplaceable = [];
 
   // Look ahead enough days to absorb any overflow.
-  const visibleDays = getVisibleWorkDays(schedule, SCHEDULING_HORIZON_DAYS);
+  const visibleDays = getVisibleWorkDays(schedule, SCHEDULING_HORIZON_DAYS, now);
   if (!visibleDays.length) return { reordered, blocks, unplaceable };
 
   const bufferMinutes = schedule.bufferMinutes ?? 0;

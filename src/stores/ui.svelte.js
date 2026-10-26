@@ -1,11 +1,11 @@
 import { toISODate, parseLocalDate } from '../lib/calendar.js';
+import { data } from './data.svelte.js';
 
 let _dragState      = $state(null);
 let _activeModal    = $state(null);
 let _expandedTaskId = $state(null);
 let _activeTab      = $state('plan'); // 'plan' | 'insights' | 'settings'
 let _previewBlock   = $state([]);
-let _activeTimer    = $state(null);
 // Ghost card shown in Upcoming during drags: { dateStr, insertBeforeTaskId } | null
 let _outlookPreview = $state(null);
 // Task list berth currently showing a "drop here to unschedule" ghost: taskId | null
@@ -42,8 +42,11 @@ export const previewBlock = {
   get value() { return _previewBlock; }
 };
 
+// The running timer is data, not UI state: it lives in the data store and is
+// changed only by timer operations. Re-exported here because components have
+// always read it from this module.
 export const activeTimer = {
-  get value() { return _activeTimer; }
+  get value() { return data.activeTimer; }
 };
 
 export const outlookPreview = {
@@ -84,10 +87,6 @@ export function setActiveTab(tab) {
 
 export function setPane(next) {
   _pane = next;
-}
-
-export function setActiveTimer(timer) {
-  _activeTimer = timer;
 }
 
 export function setOutlookPreview(preview) {

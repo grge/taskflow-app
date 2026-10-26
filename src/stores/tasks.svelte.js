@@ -1,367 +1,126 @@
-import { loadState, saveState } from '../lib/persistence.js';
-import { createTask, updateTask, remainingMinutes as remainingOf } from '../lib/tasks.js';
-import { placeBlockOnTask, removeBlocksForTask } from '../lib/scheduling.js';
-import { autoSchedule, packSequence } from '../lib/scheduler.js';
-import { reorderAndBumpForward } from '../lib/outlook-scheduler.js';
-import { workSchedule, fixedBlocks } from './schedule.svelte.js';
-import { activeTimer, setActiveTimer } from './ui.svelte.js';
-import { getDaySchedule, parseLocalDate } from '../lib/calendar.js';
-import { SNAP_MINUTES } from '../lib/constants.js';
+// Task and scheduling operations. Each mutation dispatches one operation to the
+// domain core through data.svelte.js; the exports and their signatures are the
+// app's long-standing store API, so components did not need to change.
 
-const _initialState = loadState();
-let _tasks = $state(_initialState.tasks);
+import { data, dispatch, initPersistence } from './data.svelte.js';
+import {
+  liveSeconds as liveSecondsAt,
+  liveElapsedFor as liveElapsedAt,
+  withLiveElapsed as withLiveElapsedAt
+} from '../core/live.js';
 
-if (_initialState.activeTimer) {
-  setActiveTimer(_initialState.activeTimer);
-}
+export { initPersistence };
 
 export const tasks = {
-  get value() { return _tasks; }
+  get value() { return data.tasks; }
 };
 
 export const activeTasks = {
-  get value() {
-    return _tasks.filter(t => !t.isCompleted && !t.isDeleted);
-  }
+  get value() { return data.tasks.filter(t => !t.isCompleted && !t.isDeleted); }
 };
 
 export const completedTasks = {
-  get value() {
-    return _tasks.filter(t => t.isCompleted && !t.isDeleted);
-  }
+  get value() { return data.tasks.filter(t => t.isCompleted && !t.isDeleted); }
 };
 
-export function initPersistence() {
-  $effect(() => {
-    saveState(_tasks, workSchedule.value, activeTimer.value, fixedBlocks.value);
-  });
-}
+// ─── tasks ───────────────────────────────────────────────────────────────────
 
 export function addTask(description, onset, peak, peakPressure, estimatedMinutes) {
-  const task = createTask(description, onset, peak, peakPressure, estimatedMinutes);
-  _tasks = [..._tasks, task];
-  return task;
-}
-
-// Rescale a task's scheduled blocks so their durations sum to newTotal,
-// preserving each block's share of oldTotal. Last block absorbs rounding drift.
-function rescaleBlocks(blocks, oldTotal, newTotal) {
-  return blocks.map((b, i, arr) => {
-    const share = i < arr.length - 1
-      ? Math.round(newTotal * (b.durationMinutes / oldTotal) / SNAP_MINUTES) * SNAP_MINUTES
-      : newTotal - arr.slice(0, i).reduce((s, prev) => s + Math.round(newTotal * (prev.durationMinutes / oldTotal) / SNAP_MINUTES) * SNAP_MINUTES, 0);
-    return { ...b, durationMinutes: Math.max(SNAP_MINUTES, share) };
-  });
+  return dispatch('task.add', { id: crypto.randomUUID(), description, onset, peak, peakPressure, estimatedMinutes });
 }
 
 export function editTask(taskId, patch) {
-  _tasks = _tasks.map(t => {
-    if (t.id !== taskId) return t;
-    const updated = updateTask(t, patch);
-    // Keep scheduled block durations in sync when estimatedMinutes changes —
-    // but only when remaining is still driven by the estimate (no override).
-    // With an override active, remaining is decoupled from the estimate, so
-    // editing the estimate shouldn't move the scheduled block.
-    if ('estimatedMinutes' in patch && updated.scheduledBlocks.length > 0 && t.remainingOverride == null && !t.elapsedSeconds) {
-      updated.scheduledBlocks = rescaleBlocks(updated.scheduledBlocks, t.estimatedMinutes, patch.estimatedMinutes);
-    }
-    return updated;
-  });
+  dispatch('task.edit', { id: taskId, patch });
 }
 
 export function deleteTask(taskId) {
-  _tasks = _tasks.map(t => t.id === taskId ? { ...t, isDeleted: true } : t);
+  dispatch('task.delete', { id: taskId });
 }
 
 export function completeTask(taskId) {
-  const now = new Date();
-  _tasks = _tasks.map(t =>
-    t.id === taskId ? { ...t, isCompleted: true, completedAt: now, scheduledBlocks: [] } : t
-  );
-}
-
-export function toggleLock(taskId) {
-  _tasks = _tasks.map(t => t.id === taskId ? { ...t, isLocked: !t.isLocked } : t);
-}
-
-// Manually set minutes of work left. Plants an anchor at the task's current
-// live elapsed reading, so subsequent timer time counts down from `minutes`.
-// Pass null to clear the override and revert to estimate − elapsed.
-export function setRemaining(taskId, minutes) {
-  _tasks = _tasks.map(t => {
-    if (t.id !== taskId) return t;
-    const oldRemaining = remainingOf(t);
-    const timer = activeTimer.value;
-    const elapsed = timer?.taskId === taskId ? liveSeconds(timer) : (t.elapsedSeconds ?? 0);
-    const override = minutes == null
-      ? null
-      : { atElapsedSeconds: elapsed, remainingMinutes: minutes };
-    const updated = updateTask(t, { remainingOverride: override });
-    // Resize any already-scheduled blocks to match the new remaining, so the
-    // timeline and the "X left" label stay in agreement without a reschedule.
-    if (updated.scheduledBlocks.length > 0) {
-      const newRemaining = remainingOf(updated);
-      updated.scheduledBlocks = rescaleBlocks(updated.scheduledBlocks, oldRemaining, newRemaining);
-    }
-    return updated;
-  });
-}
-
-// Manually correct logged elapsed time. Writes the task's elapsedSeconds and,
-// if a timer is live for it, rebases the timer so its running clock continues
-// from the edited value (mirrors pauseTimer's flush). The remainingOverride is
-// left untouched: with no override, remaining = estimate − elapsed recomputes
-// naturally, so bumping elapsed lowers "Left"; with one, its anchor holds.
-export function setElapsed(taskId, seconds) {
-  const total = Math.max(0, Math.round(seconds));
-  _tasks = _tasks.map(t => t.id === taskId ? { ...t, elapsedSeconds: total } : t);
-  const timer = activeTimer.value;
-  if (timer?.taskId === taskId) {
-    setActiveTimer({
-      taskId,
-      startedAt: timer.startedAt ? new Date() : null,
-      baseSeconds: total
-    });
-  }
+  dispatch('task.complete', { id: taskId });
 }
 
 export function restoreTask(taskId) {
-  _tasks = _tasks.map(t =>
-    t.id === taskId ? { ...t, isCompleted: false, completedAt: null } : t
-  );
+  dispatch('task.restore', { id: taskId });
 }
 
+// The UI toggles; the operation records the value it toggled to, so replaying
+// it can't flip the lock the wrong way.
+export function toggleLock(taskId) {
+  const t = data.tasks.find(x => x.id === taskId);
+  if (t) dispatch('task.setLock', { id: taskId, locked: !t.isLocked });
+}
+
+// Manually set minutes of work left; null clears the override.
+export function setRemaining(taskId, minutes) {
+  dispatch('task.setRemaining', { id: taskId, minutes });
+}
+
+// Manually correct logged elapsed time; a live timer for the task is rebased.
+export function setElapsed(taskId, seconds) {
+  dispatch('task.setElapsed', { id: taskId, seconds });
+}
+
+// ─── scheduling ──────────────────────────────────────────────────────────────
+
 export function scheduleTask(taskId, blocks) {
-  _tasks = _tasks.map(t =>
-    t.id === taskId ? placeBlockOnTask(t, blocks) : t
-  );
+  dispatch('schedule.place', { id: taskId, blocks });
 }
 
 export function unscheduleTask(taskId) {
-  _tasks = _tasks.map(t =>
-    t.id === taskId ? removeBlocksForTask(t) : t
-  );
+  dispatch('schedule.unschedule', { id: taskId });
 }
 
-// Commit an outlook-backlog drop: place `movedTaskId` at `insertBeforeTaskId`
-// within `targetDateStr`, then repack that day (respecting the resulting order)
-// and spill any overflow forward. `sourceDateStr` is the moved card's origin
-// day, or null when it came from outside the outlook (task list / Today).
-export function commitOutlookDrop(movedTaskId, sourceDateStr, targetDateStr, insertBeforeTaskId) {
-  // Snapshot the target day's entries before any mutation.
-  const dayEntries = _tasks
-    .filter(t => !t.isCompleted && !t.isDeleted)
-    .flatMap(t => t.scheduledBlocks
-      .filter(b => b.date === targetDateStr)
-      .map(b => ({ task: t, block: b })))
-    .sort((a, b) => a.block.startMinutes - b.block.startMinutes);
-
-  // Moving between days (or in from outside) frees the source placement first.
-  if (sourceDateStr !== targetDateStr) {
-    unscheduleTask(movedTaskId);
-  }
-
-  // Build the ordered task list for the target day, including the moved task.
-  // Settle live timer time so a running task packs at its true remaining.
-  const orderedTasks = dayEntries.map(e => withLiveElapsed(e.task)).filter(t => t.id !== movedTaskId);
-  const rawMoved = _tasks.find(t => t.id === movedTaskId);
-  if (!rawMoved) return;
-  const movedTask = withLiveElapsed(rawMoved);
-
-  let insertAt;
-  if (insertBeforeTaskId === null) {
-    insertAt = orderedTasks.length;
-  } else {
-    insertAt = orderedTasks.findIndex(t => t.id === insertBeforeTaskId);
-    if (insertAt === -1) insertAt = orderedTasks.length;
-  }
-  orderedTasks.splice(insertAt, 0, movedTask);
-
-  // Obstacles for packing/spill: fixed blocks, plus scheduled blocks of tasks
-  // NOT being repacked here (repacked tasks' own blocks are about to be
-  // rewritten, so they must not block themselves).
-  const repackedIds = new Set(orderedTasks.map(t => t.id));
-  const otherScheduledBlocks = _tasks
-    .filter(t => !t.isCompleted && !t.isDeleted && !repackedIds.has(t.id))
-    .flatMap(t => t.scheduledBlocks);
-  const occupiedBlocks = [...fixedBlocks.value, ...otherScheduledBlocks];
-
-  // Snapshot before mutating, so a failed placement can be rolled back rather
-  // than leaving the task unscheduled.
-  const previousBlocks = new Map(
-    orderedTasks.map(t => [t.id, _tasks.find(x => x.id === t.id)?.scheduledBlocks ?? []])
-  );
-
-  const { blocks, unplaceable } = reorderAndBumpForward(
-    orderedTasks, movedTaskId, insertAt,
-    workSchedule.value, occupiedBlocks, targetDateStr
-  );
-
-  for (const [taskId, block] of blocks) {
-    scheduleTask(taskId, [block]);
-  }
-
-  // A cross-day move clears the task's old blocks up front, so a task the
-  // packer could not place (longer than one work day — outlook cards never
-  // split) would otherwise end up silently unscheduled. Put it back where it
-  // was instead of destroying the user's existing schedule.
-  for (const taskId of unplaceable) {
-    const prior = previousBlocks.get(taskId);
-    if (prior?.length) scheduleTask(taskId, prior);
-  }
-}
-
-// ─── timer mutations ─────────────────────────────────────────────────────────
-
-export function liveSeconds(t) {
-  if (!t) return 0;
-  if (!t.startedAt) return t.baseSeconds;
-  return t.baseSeconds + Math.max(0, Math.floor((Date.now() - new Date(t.startedAt)) / 1000));
-}
-
-// Elapsed seconds for a task including any in-flight (unflushed) timer time.
-// The scheduler must use this so the block it packs matches the "X left" the UI
-// shows — the stored elapsedSeconds lags behind while a timer is running.
-export function liveElapsedFor(task) {
-  const timer = activeTimer.value;
-  return timer?.taskId === task.id ? liveSeconds(timer) : (task.elapsedSeconds ?? 0);
-}
-
-// Return a task with its live timer time folded into elapsedSeconds, so pure
-// scheduling code reading task.elapsedSeconds sees the same value as the UI.
-export function withLiveElapsed(task) {
-  const live = liveElapsedFor(task);
-  return live === task.elapsedSeconds ? task : { ...task, elapsedSeconds: live };
-}
-
-export function startTimer(taskId) {
-  const current = activeTimer.value;
-  if (current && current.taskId !== taskId) {
-    finishTimer(current.taskId);
-  }
-  const task = _tasks.find(t => t.id === taskId);
-  const base = task?.elapsedSeconds ?? 0;
-  setActiveTimer({ taskId, startedAt: new Date(), baseSeconds: base });
-}
-
-export function pauseTimer(taskId) {
-  const t = activeTimer.value;
-  if (!t || t.taskId !== taskId || !t.startedAt) return;
-  const total = liveSeconds(t);
-  _tasks = _tasks.map(t2 => t2.id === taskId ? { ...t2, elapsedSeconds: total } : t2);
-  setActiveTimer({ taskId, startedAt: null, baseSeconds: total });
-}
-
-export function resumeTimer(taskId) {
-  const t = activeTimer.value;
-  if (!t || t.taskId !== taskId || t.startedAt) return;
-  setActiveTimer({ taskId, startedAt: new Date(), baseSeconds: t.baseSeconds });
-}
-
-export function finishTimer(taskId) {
-  const t = activeTimer.value;
-  const total = t && t.taskId === taskId ? liveSeconds(t) : null;
-  setActiveTimer(null);
-  if (total === null) return;
-  _tasks = _tasks.map(t2 =>
-    t2.id === taskId ? { ...t2, elapsedSeconds: total } : t2
-  );
-}
-
-// ─── schedule mutations ───────────────────────────────────────────────────────
-
-export function autoScheduleAll() {
-  const blocks = autoSchedule(_tasks.map(withLiveElapsed), workSchedule.value, fixedBlocks.value);
-  if (!blocks.length) return;
-  const blocksByTask = new Map();
-  for (const block of blocks) {
-    if (!blocksByTask.has(block.taskId)) blocksByTask.set(block.taskId, []);
-    blocksByTask.get(block.taskId).push(block);
-  }
-  _tasks = _tasks.map(t => {
-    const tb = blocksByTask.get(t.id);
-    return tb ? placeBlockOnTask(t, tb) : t;
-  });
-}
-
-// Place one task at the earliest free work time, leaving every other task where
-// it is. This is packSequence with a one-task sequence, so it inherits the bulk
-// auto-scheduler's free-interval walk, buffer handling, multi-day splitting and
-// 7-work-day window rather than growing a second copy of that logic.
-//
-// The task's own blocks are excluded from the obstacle set — a scheduled task
-// has to be able to re-place over the slot it currently occupies. Soft-deleted
-// tasks are excluded too, so a deleted task can't hold a slot hostage.
-//
-// Returns { ok: false, reason } or { ok: true, blocks, previousBlocks }, where
-// previousBlocks is whatever the task had before, for undo.
+// Place one task at the earliest free work time. Returns { ok: false, reason }
+// or { ok: true, blocks, previousBlocks }; previousBlocks feeds restoreBlocks.
 export function scheduleTaskNext(taskId) {
-  const task = _tasks.find(t => t.id === taskId);
-  if (!task || task.isCompleted || task.isDeleted) return { ok: false, reason: 'unavailable' };
-
-  const obstacles = _tasks
-    .filter(t => t.id !== taskId && !t.isCompleted && !t.isDeleted)
-    .flatMap(t => t.scheduledBlocks);
-
-  const blocks = packSequence(
-    [withLiveElapsed(task)], workSchedule.value, obstacles, fixedBlocks.value
-  );
-
-  // packSequence signals two different failures: null when no gap is large
-  // enough, [] when the schedule has no enabled work days at all.
-  if (!blocks) return { ok: false, reason: 'no-room' };
-  if (!blocks.length) return { ok: false, reason: 'no-work-days' };
-
-  const previousBlocks = task.scheduledBlocks;
-  _tasks = _tasks.map(t => (t.id === taskId ? placeBlockOnTask(t, blocks) : t));
-  return { ok: true, blocks, previousBlocks };
+  return dispatch('schedule.next', { id: taskId });
 }
 
 // Undo for scheduleTaskNext: put back exactly what the task had, including
 // having had nothing.
 export function restoreBlocks(taskId, blocks) {
-  _tasks = _tasks.map(t =>
-    t.id === taskId
-      ? (blocks.length ? placeBlockOnTask(t, blocks) : removeBlocksForTask(t))
-      : t
-  );
+  dispatch('schedule.place', { id: taskId, blocks });
+}
+
+export function autoScheduleAll() {
+  dispatch('schedule.auto');
 }
 
 export function clearSchedule() {
-  _tasks = _tasks.map(t =>
-    t.scheduledBlocks.length && !t.isLocked ? removeBlocksForTask(t) : t
-  );
+  dispatch('schedule.clear');
 }
 
-// Called when work hours change. Finds the earliest scheduled block that no
-// longer fits its day (day disabled, or block starts/ends outside the new
-// startMinutes/endMinutes), then unschedules that task and every task with a
-// block at or after that point in time — since the auto-scheduler packs
-// sequentially, anything after is presumptively built on top of a now-invalid
-// placement. Predictable over clever: no partial trims, no re-packing.
-export function revalidateScheduleAfterHoursChange(schedule) {
-  const blockFits = (b) => {
-    const day = getDaySchedule(parseLocalDate(b.date), schedule);
-    return !!day && b.startMinutes >= day.startMinutes && b.startMinutes + b.durationMinutes <= day.endMinutes;
-  };
-
-  let cutoff = null; // { date, startMinutes } — earliest invalid block
-  for (const t of _tasks) {
-    for (const b of t.scheduledBlocks) {
-      if (blockFits(b)) continue;
-      if (!cutoff || b.date < cutoff.date || (b.date === cutoff.date && b.startMinutes < cutoff.startMinutes)) {
-        cutoff = { date: b.date, startMinutes: b.startMinutes };
-      }
-    }
-  }
-  if (!cutoff) return;
-
-  const isAtOrAfterCutoff = (b) =>
-    b.date > cutoff.date || (b.date === cutoff.date && b.startMinutes >= cutoff.startMinutes);
-
-  _tasks = _tasks.map(t => {
-    if (!t.scheduledBlocks.length) return t;
-    const affected = t.scheduledBlocks.some(isAtOrAfterCutoff);
-    return affected ? removeBlocksForTask(t) : t;
+// Commit an Upcoming drop: place `movedTaskId` before `insertBeforeTaskId`
+// (null = at the end) within `targetDateStr`, repack the day, spill forward.
+// `sourceDateStr` is the card's own day, or null from outside the backlog.
+export function commitOutlookDrop(movedTaskId, sourceDateStr, targetDateStr, insertBeforeTaskId) {
+  dispatch('schedule.outlookMove', {
+    id: movedTaskId,
+    sourceDate: sourceDateStr,
+    targetDate: targetDateStr,
+    insertBeforeId: insertBeforeTaskId
   });
+}
+
+// ─── timer ───────────────────────────────────────────────────────────────────
+
+export function startTimer(taskId)  { dispatch('timer.start',  { id: taskId }); }
+export function pauseTimer(taskId)  { dispatch('timer.pause',  { id: taskId }); }
+export function resumeTimer(taskId) { dispatch('timer.resume', { id: taskId }); }
+export function finishTimer(taskId) { dispatch('timer.finish', { id: taskId }); }
+
+// Live readings for the UI, at the current moment. Inside the core the same
+// functions take the operation's time instead.
+export function liveSeconds(t) {
+  return liveSecondsAt(t, Date.now());
+}
+
+export function liveElapsedFor(task) {
+  return liveElapsedAt(data, task, Date.now());
+}
+
+export function withLiveElapsed(task) {
+  return withLiveElapsedAt(data, task, Date.now());
 }
