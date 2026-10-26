@@ -25,6 +25,18 @@ export function outlookCardFromPoint(x, y, dayEl, excludeTaskId) {
              && dayEl.contains(el)) ?? null;
 }
 
+// Whether the pointer is over the insertion ghost inside `dayEl`. The ghost is
+// inserted exactly where the pointer is, so this is the common case at release.
+export function overOutlookGhost(x, y, dayEl) {
+  if (!dayEl) return false;
+  // Geometry, not elementsFromPoint: the ghost is pointer-events: none so it
+  // never intercepts the drop, which also hides it from elementsFromPoint.
+  return [...dayEl.querySelectorAll('[data-outlook-ghost]')].some(el => {
+    const r = el.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  });
+}
+
 // The narrow-layout pane tab under the pointer, or null. Carries `data-pane`.
 // Hovering one mid-drag switches panes, so a drag can still reach the pane that
 // the narrow layout has collapsed away.

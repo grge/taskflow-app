@@ -2,7 +2,7 @@ import { setDragState, setPreviewBlock, setOutlookPreview, setBerthGhost } from 
 import { scheduleTask, unscheduleTask, commitOutlookDrop, tasks, withLiveElapsed } from '../stores/tasks.svelte.js';
 import { workSchedule, editFixedBlock } from '../stores/schedule.svelte.js';
 import {
-  cellFromPoint, outlookDayFromPoint, outlookCardFromPoint, cellKey, getEntriesForDay
+  cellFromPoint, outlookDayFromPoint, outlookCardFromPoint, overOutlookGhost, cellKey, getEntriesForDay
 } from './dnd-hittest.js';
 import {
   computeBlocksForCell, resolveFixedBlockDrop, computeOutlookInsertion
@@ -254,6 +254,7 @@ function makeDragCore(ctx) {
   // for computeOutlookInsertion: { dateStr, hoveredId, pos }.
   function outlookTarget(x, y, dayEl) {
     const dateStr = dayEl.dataset.outlookDay;
+    if (overOutlookGhost(x, y, dayEl)) return { dateStr, hoveredId: null, pos: null, overGhost: true };
     const card = outlookCardFromPoint(x, y, dayEl, ctx.getTaskId());
     if (!card) return { dateStr, hoveredId: null, pos: null };
     const rect = card.getBoundingClientRect();
@@ -312,6 +313,7 @@ function makeDragCore(ctx) {
   }
 
   function onDrop(x, y) {
+    const previewed = lastOutlookDrop;
     lastCellKey     = null;
     lastOutlookDrop = null;
     const cell = cellFromPoint(x, y);
@@ -327,8 +329,16 @@ function makeDragCore(ctx) {
       if (dayEl) {
         const task = getTask(ctx.getTaskId());
         if (task) {
-          const card = outlookCardFromPoint(x, y, dayEl, ctx.getTaskId());
-          commitOutlookDrop(task.id, ctx.sourceDateStr, dayEl.dataset.outlookDay, card?.dataset.outlookTaskId ?? null);
+          // Commit the insertion the ghost showed. The ghost is inserted right
+          // where the pointer is, so at release the pointer is usually over the
+          // ghost, not a card: hit-testing again found nothing and appended to
+          // the end of the day, whatever the preview had promised. Hit-testing
+          // remains the fallback when nothing was previewed for this day.
+          const dateStr = dayEl.dataset.outlookDay;
+          const insertBefore = previewed?.dateStr === dateStr
+            ? previewed.insertBeforeTaskId
+            : (outlookCardFromPoint(x, y, dayEl, ctx.getTaskId())?.dataset.outlookTaskId ?? null);
+          commitOutlookDrop(task.id, ctx.sourceDateStr, dateStr, insertBefore);
         }
       }
     }

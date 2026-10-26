@@ -82,7 +82,7 @@
         {:else}
           {#each day.entries as { task, block } (task.id)}
             {#if ghost && ghost.insertBeforeTaskId === task.id}
-              <div class="outlook-card outlook-card-ghost">
+              <div class="outlook-card outlook-card-ghost" data-outlook-ghost>
                 <div class="card-accent"></div>
                 <div class="card-body">
                   <span class="card-desc">{ghostTask?.description ?? '…'}</span>
@@ -135,7 +135,7 @@
             </div>
           {/each}
           {#if ghost && ghost.insertBeforeTaskId === null}
-            <div class="outlook-card outlook-card-ghost">
+            <div class="outlook-card outlook-card-ghost" data-outlook-ghost>
               <div class="card-accent"></div>
               <div class="card-body">
                 <span class="card-desc">{ghostTask?.description ?? '…'}</span>

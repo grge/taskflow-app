@@ -66,39 +66,33 @@ export function resolveFixedBlockDrop(cell, grabOffsetMinutes, durationMinutes, 
   return { date: cell.date, startMinutes: clamped };
 }
 
-// ─── outlook insertion point + hysteresis ────────────────────────────────────
-
-// The gap that a given insertBeforeTaskId occupies is bounded by the card just
-// before it and the card itself; the pointer is "still in that gap" when the
-// hovered card is either neighbour. Shared by the hysteresis check below.
-function occupiesSameGap(idsInDay, insertBeforeTaskId, hoveredId) {
-  const insertIdx = insertBeforeTaskId === null
-    ? idsInDay.length
-    : idsInDay.indexOf(insertBeforeTaskId);
-  const gapBefore = idsInDay[insertIdx - 1] ?? null;
-  const gapAfter  = idsInDay[insertIdx]     ?? null;
-  return hoveredId === gapBefore || hoveredId === gapAfter;
-}
+// ─── outlook insertion point ─────────────────────────────────────────────────
 
 // Decide where a dragged card should insert within an outlook day.
 //
 //   target    — { dateStr, hoveredId, pos } from the hit-test layer, where
 //               `hoveredId`/`pos` describe the card under the pointer (pos is
 //               'before' | 'after' its midpoint), or hoveredId === null for the
-//               empty area of the day (append at end).
+//               empty area of the day (append at end). `overGhost` is true
+//               when the pointer is on the insertion ghost.
 //   idsInDay  — task IDs currently rendered in that day, in order.
 //   current   — the last committed drop { dateStr, insertBeforeTaskId } | null,
-//               for hysteresis.
+//               kept while the pointer is on the ghost.
 //   source    — { dateStr, taskId } describing the dragged card's own day, so
 //               same-day no-op reorders can be suppressed. Pass null when the
 //               drag has no home day (task chip / timeline block).
 //
 // Returns one of:
-//   { action: 'keep' }               — pointer still in the same gap; no change
+//   { action: 'keep' }               — pointer on the ghost; no change
 //   { action: 'clear' }              — no meaningful insertion (same-day no-op)
 //   { action: 'set', insertBeforeTaskId }
 export function computeOutlookInsertion(target, idsInDay, current, source = null) {
-  const { dateStr, hoveredId, pos } = target;
+  const { dateStr, hoveredId, pos, overGhost } = target;
+
+  // On the ghost itself: keep the insertion it stands for. The ghost is drawn
+  // where the pointer is, so without this the pointer landing on it read as
+  // the empty area of the day and flipped the preview to "append".
+  if (overGhost && current?.dateStr === dateStr) return { action: 'keep' };
 
   // Empty day area — append at end (or no-op if already alone on our own day).
   if (hoveredId === null) {
@@ -106,12 +100,13 @@ export function computeOutlookInsertion(target, idsInDay, current, source = null
     return { action: 'set', insertBeforeTaskId: null };
   }
 
-  // Hysteresis: if we already have a drop on this same day and the pointer is
-  // still within the gap the ghost occupies, don't update — this breaks the
-  // ghost-shifts-midpoints-flips-pos feedback loop.
-  if (current?.dateStr === dateStr && occupiesSameGap(idsInDay, current.insertBeforeTaskId, hoveredId)) {
-    return { action: 'keep' };
-  }
+  // No neighbour hysteresis. Inserting the ghost shifts the cards beside it,
+  // which used to flip the pointer across a card's midpoint and back; the
+  // overGhost check above is what breaks that loop now, because once the ghost
+  // moves under the pointer the pointer is on the ghost and the decision holds.
+  // The old rule held the decision while hovering either neighbour card, on
+  // either half, which made "before the first card" unreachable on any day the
+  // pointer entered through its header.
 
   const targetIdx = idsInDay.indexOf(hoveredId);
   const insertBeforeTaskId = pos === 'before'
