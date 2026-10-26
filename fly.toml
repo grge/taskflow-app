@@ -1,12 +1,12 @@
 # fly.io config for taskflow-server. See server/README.md for the steps.
 # `fly launch --no-deploy --copy-config --name <app>` fills in `app`.
 
-app = "taskflow-server-CHANGE-ME"
-primary_region = "lhr"
+app = "taskflow-sync"
+primary_region = "syd"
 
 [env]
   # Your timezone: day boundaries and work hours are computed in it.
-  TZ = "Europe/London"
+  TZ = "Australia/Darwin"
   # Origins allowed to call the backend: the hosted app. Add yours, comma-separated,
   # if you serve the frontend somewhere else (e.g. http://localhost:5173 for dev).
   ALLOWED_ORIGINS = "https://grge.github.io"
