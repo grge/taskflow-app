@@ -23,7 +23,7 @@ after(() => dirs.forEach(d => rmSync(d, { recursive: true, force: true })));
 async function startServer({ dir, port = 0, ...config } = {}) {
   if (!dir) { dir = mkdtempSync(join(tmpdir(), 'taskflow-test-')); dirs.push(dir); }
   const store = openStore(join(dir, 'taskflow.db'));
-  const app = createApp({ store, config: { allowedOrigins: [ORIGIN], coreVersion: coreVersion(), homeTimeZone: 'UTC', ...config } });
+  const app = createApp({ store, config: { allowedOrigins: [ORIGIN], coreVersion: coreVersion(), homeTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...config } });
   await new Promise(r => app.server.listen(port, '127.0.0.1', r));
   const url = `http://127.0.0.1:${app.server.address().port}`;
   return {
