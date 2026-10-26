@@ -10,6 +10,7 @@
   import { createInlineEdit } from '../inline-edit.svelte.js';
   import EnvelopeEditor from './EnvelopeEditor.svelte';
   import LockIcon from './LockIcon.svelte';
+  import { SCHEDULING_HORIZON_DAYS } from '../constants.js';
 
   let { task } = $props();
 
@@ -107,7 +108,7 @@
   $effect(() => () => clearTimeout(flashTimer));
 
   const FLASH_REASONS = {
-    'no-room':      'No free slot in the next 7 work days',
+    'no-room':      `No free slot in the next ${SCHEDULING_HORIZON_DAYS} work days`,
     'no-work-days': 'No work days enabled — check Settings',
     'unavailable':  'This task can no longer be scheduled'
   };
