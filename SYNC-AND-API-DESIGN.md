@@ -53,7 +53,7 @@ flowchart LR
   A["Assistant or script<br/>its own token"]
   C["Chat app, such as Claude on a phone<br/>optional, phase 6"]
 
-  WS["Sync over WebSocket<br/>operations in, state out"]
+  WS["Sync<br/>operations in over HTTP, out over WebSocket"]
   R["REST API<br/>plain inputs, dry runs, undo"]
   M["MCP adapter<br/>optional, wraps the REST API"]
 
@@ -71,7 +71,7 @@ flowchart LR
   CORE --- LOG
 ```
 
-Connected devices send operations and receive new state over one WebSocket. Assistants and scripts use the REST API with their own token. Chat apps that can only connect through MCP connectors would reach the same API through an optional adapter. A local-only device runs the identical app and core but never connects.
+Connected devices send operations with `POST /v1/ops` and receive every device's operations over one WebSocket. Assistants and scripts use the REST API with their own token. Chat apps that can only connect through MCP connectors would reach the same API through an optional adapter. A local-only device runs the identical app and core but never connects.
 
 Three rules hold the design together:
 
@@ -139,16 +139,20 @@ Because anyone can host a backend, the interface between app and backend is a wr
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /v1/info` | Unauthenticated. Returns `{ name, protocol, coreVersion, features, homeTimeZone }` |
-| `GET /v1/state` | The current state and its version |
-| `GET /v1/ops?since=<version>` | Operations after a version. `410 Gone` if that history was pruned, meaning: reload the state |
-| `POST /v1/ops` | Applies one or more operations in order. Returns a result per operation and the new version |
-| `GET /v1/stream` | WebSocket. Pushes `{ version, ops }` as they are applied |
+| `GET /v1/state` | `{ version, state, hash }` |
+| `GET /v1/ops?since=<version>` | `{ version, ops, hash }`: operations after a version. `410 Gone` if that history was pruned, `409` if the version is ahead of the backend; either means reload the state |
+| `POST /v1/ops` | `{ ops: [...] }`, applied in order. Returns `{ version, hash, results }`, one result per operation: `applied` (with its version, the time it was applied at, and the operation's result), `duplicate` (an id already applied; nothing happens) or `rejected` (with a reason; the rest of the batch still applies) |
+| `GET /v1/stream` | WebSocket. Pushes `{ type: 'ops', version, ops, hash }` for every applied batch |
 
-Everything except `/v1/info` needs `Authorization: Bearer <token>`. Browsers can't set headers on a WebSocket, so the stream authenticates with a first message carrying the token instead, rather than putting it in the URL where proxies log it.
+Everything except `/v1/info` needs `Authorization: Bearer <token>`. Browsers can't set headers on a WebSocket, so the stream authenticates with a first message carrying the token instead, rather than putting it in the URL where proxies log it: `{ type: 'auth', token, since }`. The backend answers with the operations after `since` (or `{ type: 'reset' }` if it can't), then `{ type: 'ready', version }`. A wrong or revoked token closes the stream with code 4401. Errors elsewhere are `{ error: { code, message } }`.
+
+**The state hash.** Every batch and every state carries `hash`, a fingerprint of the state after it (`stateHash` in `src/core/state.js`). A device replays a batch and compares. A different hash means it can't reproduce the backend's state, because the two run different cores or compute in different timezones, so it reloads the backend's state instead of keeping its own answer. This is what makes core skew safe rather than just visible.
+
+**Times.** An operation is applied with its own `at`, so replays agree. One stamped more than two minutes in the future (a fast device clock) is applied at the backend's time instead, and the log records the time it was applied at.
 
 **Versioning.** `protocol` is an integer. Additive changes, such as a new optional field, don't bump it; a breaking change does. The app checks it on connect and refuses an incompatible backend with a clear message. New operation types are announced in `features`, and the app never sends an operation the backend doesn't list.
 
-**Core skew.** The backend re-applies operations with its own copy of the domain core, so app and backend must agree on what an operation does. A backend running an older scheduler would place tasks differently from the device that issued the operation. `coreVersion` makes that visible: the app shows a notice when it differs from its own, and the reference backend is built from the same repo so they move together.
+**Core skew.** The backend re-applies operations with its own copy of the domain core, so app and backend must agree on what an operation does. A backend running an older scheduler would place tasks differently from the device that issued the operation. `coreVersion` makes that visible: the app shows a notice when it differs from its own, and the reference backend is built from the same repo so they move together. It is a hash of the source of `src/core/apply.js` and everything it imports (`scripts/core-version.mjs`), computed by Vite at build time and by the backend at startup, so it changes exactly when the code that applies operations does. The state hash above keeps devices correct while the versions differ: the backend's result always wins.
 
 ## Connecting a backend
 
@@ -191,7 +195,9 @@ The reference backend is a single-process Node server with a SQLite file, packag
 
 It replaces the earlier plan of a Cloudflare Durable Object per user or Supabase. Those are answers to running one service for many users, which is no longer the job. Either could still implement the protocol later; neither is planned.
 
-What it holds, all in one SQLite file: the current state, the operation log, periodic snapshots, and hashed tokens. Configuration is environment variables: `TZ` (the home timezone), `ALLOWED_ORIGINS` (defaulting to the GitHub Pages origin) and a data directory.
+What it holds, all in one SQLite file: the current state, the operation log and hashed tokens. The current state is written with every operation, in the same transaction as its log entry, so it serves as the snapshot: a restart resumes where it stopped, and a new device loads it whole. The log is pruned to the newest `HISTORY_LIMIT` operations. Configuration is environment variables: `TZ` (the home timezone), `ALLOWED_ORIGINS` (defaulting to the GitHub Pages origin) and a data directory; the full list, the commands and the deploy steps are in [`server/README.md`](server/README.md). The code is `server/`; `node:sqlite` and `ws` are its only dependencies.
+
+The device side is `src/sync/client.js`: the replica plus `fetch` and `WebSocket`, with reconnect and backoff. It runs unchanged in Node, which is how `npm run test:server` drives real devices through a real server. Phase 4 wires it into the app.
 
 Tokens are managed with a small command, never in the app:
 
@@ -292,7 +298,7 @@ The proposal:
 - Keep blocks floating. For a personal planner, "9:00 is deep-work time" should stay 9:00 when you travel.
 - Keep onset and peak absolute. A deadline is a real moment.
 - The core computes day boundaries and work hours in the host's local time, as it does today. On a device that is the browser's timezone. On the reference backend it is the process timezone, set to the home timezone with `TZ`.
-- `/v1/info` reports the home timezone. When a device's timezone differs from it, the app shows a one-line notice in the planner header.
+- `/v1/info` reports the home timezone. When a device's timezone differs from it, the app shows a one-line notice in the planner header. Scheduling done on that device is recomputed by the backend in the home timezone and replaces the device's own answer, since the state hash differs; the notice explains why things moved.
 
 The single-person backend is what makes this simple. Each backend serves one person, so the process timezone can simply be theirs, and the core needs no timezone arithmetic. A backend serving many people in different timezones would need real per-operation timezone handling; this design doesn't, and the `tz` recorded on each operation keeps that door open.
 
@@ -312,7 +318,7 @@ The data lives on a server you control, readable only with tokens you created. Y
 
 Five phases, each shippable on its own, plus an optional sixth. Phases 1 and 2 need no backend and improve the app as it is, so they're the right place to start.
 
-**Status:** phases 1 and 2 are done. `npm test` covers the core, the replica and the export format, and `npm run test:e2e` covers the app.
+**Status:** phases 1–3 are done; phase 3 still needs deploying to your fly.io account (`server/README.md`). `npm test` covers the core, the replica and the export format, and `npm run test:e2e` covers the app.
 
 | # | Phase | Delivers | Verified by |
 | --- | --- | --- | --- |
@@ -329,7 +335,7 @@ Phase 1 is the riskiest refactor, because it touches every store. It's also the 
 
 - [ ] **Where will you talk to the assistant?** Claude Code or another agent on a laptop needs only the REST API (phase 5). A chat app on the phone needs the MCP adapter (phase 6).
 - [ ] **Auto-stop on fly.io, or always on?** Auto-stop is cheaper but adds a cold start and drops live sync until devices reconnect.
-- [ ] **Core skew policy.** When a device's `coreVersion` differs from the backend's, is a notice enough, or should the device stop sending scheduling operations until it updates?
+- [x] **Core skew policy.** A notice is enough. The state hash makes the backend's result win, so nothing goes wrong, only a visible rearrangement.
 - [ ] **API writes: direct or confirmed?** Apply immediately with undo, as proposed, or hold changes made through the API for approval in the app?
 - [ ] **Merge on first connect.** Is "newer `lastModifiedAt` wins" good enough, or should conflicting tasks be shown side by side?
 - [ ] **Estimation multiplier.** Should the scheduler scale durations by `estimationMultiplier`, as `CLAUDE.md` claims? Settle it in phase 1, before the backend starts running the scheduler.
