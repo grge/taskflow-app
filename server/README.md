@@ -45,7 +45,9 @@ You need [`flyctl`](https://fly.io/docs/flyctl/install/) and a fly.io account. R
    fly ssh console -C "taskflow-server token create --name phone --link"
    ```
 
-Connecting from the app's Settings comes in phase 4. Until then the backend runs, but the app doesn't talk to it yet.
+7. **Connect each device**: open its link, or in the app go to Settings → Sync backend and enter the URL and token. A device with tasks connecting to an empty backend uploads them; one with nothing downloads the backend's; when both have data the app asks whether to merge, keep the backend's, or keep the device's. Disconnecting (same place) leaves the device a full local copy.
+
+   The app must be served from an origin in `ALLOWED_ORIGINS`; to try a local dev build against the deployed backend, add `http://localhost:5173` there.
 
 **Cost and auto-stop.** `fly.toml` stops the machine when no device is connected and starts it on the next request, which takes a second or two. An open app tab keeps its stream connected, so the machine only stops when nobody is using it. To keep it always on, set `auto_stop_machines = "off"` and `min_machines_running = 1`. Either way it is a small shared CPU with 256 MB and a 1 GB volume; check fly.io's pricing page for current numbers.
 

@@ -197,7 +197,7 @@ It replaces the earlier plan of a Cloudflare Durable Object per user or Supabase
 
 What it holds, all in one SQLite file: the current state, the operation log and hashed tokens. The current state is written with every operation, in the same transaction as its log entry, so it serves as the snapshot: a restart resumes where it stopped, and a new device loads it whole. The log is pruned to the newest `HISTORY_LIMIT` operations. Configuration is environment variables: `TZ` (the home timezone), `ALLOWED_ORIGINS` (defaulting to the GitHub Pages origin) and a data directory; the full list, the commands and the deploy steps are in [`server/README.md`](server/README.md). The code is `server/`; `node:sqlite` and `ws` are its only dependencies.
 
-The device side is `src/sync/client.js`: the replica plus `fetch` and `WebSocket`, with reconnect and backoff. It runs unchanged in Node, which is how `npm run test:server` drives real devices through a real server. Phase 4 wires it into the app.
+The device side is `src/sync/client.js`: the replica plus `fetch` and `WebSocket`, with reconnect and backoff. It runs unchanged in Node, which is how `npm run test:server` drives real devices through a real server. In the app, `src/stores/data.svelte.js` runs one while a backend is connected.
 
 Tokens are managed with a small command, never in the app:
 
@@ -318,7 +318,7 @@ The data lives on a server you control, readable only with tokens you created. Y
 
 Five phases, each shippable on its own, plus an optional sixth. Phases 1 and 2 need no backend and improve the app as it is, so they're the right place to start.
 
-**Status:** phases 1–3 are done; phase 3 still needs deploying to your fly.io account (`server/README.md`). `npm test` covers the core, the replica and the export format, and `npm run test:e2e` covers the app.
+**Status:** phases 1–4 are done, and the reference backend is deployed on fly.io. `npm test` covers the core, the replica, connecting and the export format, plus the backend; `npm run test:e2e` covers the app, including real browsers syncing through a real backend (`tests/e2e/sync.mjs`).
 
 | # | Phase | Delivers | Verified by |
 | --- | --- | --- | --- |

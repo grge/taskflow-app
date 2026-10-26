@@ -1,8 +1,10 @@
 <script>
-  import { closeModal, setActiveTab } from '../../stores/ui.svelte.js';
+  import { closeModal, setActiveTab, connectLink, setConnectLink } from '../../stores/ui.svelte.js';
   import { workSchedule, updateWorkSchedule } from '../../stores/schedule.svelte.js';
   import { theme, setTheme } from '../../stores/theme.svelte.js';
-  import { data, exportData, readImport, importData } from '../../stores/data.svelte.js';
+  import { data, exportData, readImport, importData, sync, connect, disconnect, TIME_ZONE } from '../../stores/data.svelte.js';
+  import { probeBackend, firstConnectPlan, liveTaskCount as countLive } from '../../sync/connect.js';
+  import { describeSync } from '../sync-status.js';
   import { toISODate } from '../calendar.js';
 
   const THEMES = [
@@ -140,15 +142,85 @@
       return;
     }
     const plural = n => `${n} task${n === 1 ? '' : 's'}`;
-    if (liveTaskCount > 0 && !confirm(`Replace your ${plural(liveTaskCount)}, work hours and fixed blocks with the ${plural(read.tasks)} in ${file.name}? Export first if you might want yours back.`)) return;
+    if (liveTaskCount > 0 && !confirm(`Replace your ${plural(liveTaskCount)}, work hours and fixed blocks with the ${plural(read.tasks)} in ${file.name}?${sync.connected ? ' This replaces them on every connected device.' : ''} Export first if you might want yours back.`)) return;
     const r = importData(read.data);
     importStatus = r.ok
       ? { ok: true, message: `Imported ${plural(r.tasks)} from ${file.name}.` }
       : { ok: false, message: r.reason };
   }
 
+  // ── Sync backend ───────────────────────────────────────────────────────────
+  // A connect link fills the form in; connecting still waits for a click, so a
+  // link someone else sent can't attach this device to their backend unseen.
+  const link = connectLink.value;
+  setConnectLink(null);
+  let urlInput   = $state(link?.url ?? '');
+  let tokenInput = $state(link?.token ?? '');
+  let fromLink   = $state(!!link);
+  let checking   = $state(false);
+  let syncError  = $state(null);
+  let syncDone   = $state(null);
+  let choosing   = $state(null); // { probe, device, backend } while asking what to keep
+  let syncSection;
+
+  // Arriving from a link, the form is the point; it sits below the fold.
+  $effect(() => {
+    if (link) syncSection?.scrollIntoView({ block: 'center' });
+  });
+
+  const hostOf = url => { try { return new URL(url).host; } catch { return url; } };
+  const described = $derived(describeSync(sync.status, sync.pending));
+  const homeZone = $derived(sync.info?.homeTimeZone ?? null);
+  const plural = n => `${n} task${n === 1 ? '' : 's'}`;
+
+  async function onConnect(e) {
+    e.preventDefault();
+    syncError = syncDone = null;
+    checking = true;
+    const probe = await probeBackend({ url: urlInput, token: tokenInput });
+    checking = false;
+    if (!probe.ok) { syncError = probe.reason; return; }
+    const device = { tasks: data.tasks, workSchedule: data.workSchedule, fixedBlocks: data.fixedBlocks, activeTimer: data.activeTimer };
+    const plan = firstConnectPlan(device, probe.state);
+    if (plan === 'ask') {
+      choosing = { probe, device: countLive(device), backend: countLive(probe.state) };
+      return;
+    }
+    finish(probe, null, plan === 'upload'
+      ? `Connected. ${plural(countLive(device))} from this device ${countLive(device) === 1 ? 'is' : 'are'} being sent to the backend.`
+      : `Connected. ${countLive(probe.state) ? `Loaded ${plural(countLive(probe.state))} from the backend.` : 'The backend is empty; changes made here will sync from now on.'}`);
+  }
+
+  function choose(choice) {
+    const { probe, device, backend } = choosing;
+    choosing = null;
+    finish(probe, choice, {
+      merge:   `Connected and merged: every task from both is kept.`,
+      backend: `Connected. This device now shows the backend's ${plural(backend)}.`,
+      device:  `Connected. This device's ${plural(device)} replaced the backend's.`
+    }[choice]);
+  }
+
+  function finish(probe, choice, message) {
+    connect(probe, { token: tokenInput, choice });
+    tokenInput = '';
+    fromLink = false;
+    syncDone = message;
+  }
+
+  function onDisconnect() {
+    const n = sync.pending;
+    if (n && !confirm(`${n} change${n === 1 ? '' : 's'} made here ${n === 1 ? 'hasn\'t' : 'haven\'t'} reached the backend. ${n === 1 ? 'It stays' : 'They stay'} on this device but won't sync. Disconnect anyway?`)) return;
+    urlInput = sync.url ?? '';
+    disconnect();
+    syncDone = 'Disconnected. This device keeps its copy of everything and works on its own.';
+  }
+
   function hardReset() {
-    if (!confirm('Delete all tasks and reset to defaults? This cannot be undone.')) return;
+    const message = sync.connected
+      ? 'Delete everything on this device and disconnect it? The backend and your other devices keep their data.'
+      : 'Delete all tasks and reset to defaults? This cannot be undone.';
+    if (!confirm(message)) return;
     localStorage.clear();
     location.reload();
   }
@@ -263,6 +335,62 @@
             {/each}
           </div>
         </div>
+      </section>
+
+      <section data-testid="sync-section" bind:this={syncSection}>
+        <h3 class="section-title">Sync backend</h3>
+        {#if sync.connected}
+          <div class="field-row">
+            <div class="field-info">
+              <span class="field-label sync-host"><span class="sync-dot tone-{described.tone}"></span>{hostOf(sync.url)}</span>
+              <span class="field-hint" data-testid="sync-status">{described.long}</span>
+            </div>
+            <div class="data-actions">
+              <button class="btn btn-sm" onclick={onDisconnect}>Disconnect</button>
+            </div>
+          </div>
+          {#if homeZone && TIME_ZONE && homeZone !== TIME_ZONE}
+            <p class="sync-note">The backend schedules in {homeZone} time and this device is on {TIME_ZONE}, so blocks scheduled here may move when they sync.</p>
+          {/if}
+        {:else if choosing}
+          <div class="sync-choice" data-testid="sync-choice">
+            <p class="sync-question">This device has {plural(choosing.device)} and {hostOf(choosing.probe.url)} has {plural(choosing.backend)}. What should connecting do?</p>
+            <button class="choice-btn" onclick={() => choose('merge')}>
+              <span class="field-label">Merge both</span>
+              <span class="field-hint">Keep every task from both. Where both have the same task, the more recently changed copy wins. Work hours come from the backend.</span>
+            </button>
+            <button class="choice-btn" onclick={() => choose('backend')}>
+              <span class="field-label">Use the backend's</span>
+              <span class="field-hint">Replace what is on this device with the backend's {plural(choosing.backend)}.</span>
+            </button>
+            <button class="choice-btn" onclick={() => choose('device')}>
+              <span class="field-label">Use this device's</span>
+              <span class="field-hint">Replace the backend's data, on every connected device, with this device's {plural(choosing.device)}.</span>
+            </button>
+            <button class="btn btn-sm btn-ghost" onclick={() => (choosing = null)}>Cancel</button>
+          </div>
+        {:else}
+          <p class="field-hint sync-intro">This device keeps its data to itself. To sync it with your other devices, connect a backend you run (see <code>server/README.md</code>).</p>
+          {#if fromLink}
+            <p class="sync-note from-link">A connect link filled these in. Check the URL is your own backend, then connect.</p>
+          {/if}
+          <form class="sync-form" onsubmit={onConnect}>
+            <div class="form-field">
+              <label for="sync-url">Backend URL</label>
+              <input id="sync-url" type="url" inputmode="url" placeholder="https://your-backend.fly.dev" autocomplete="off" spellcheck="false" bind:value={urlInput} />
+            </div>
+            <div class="form-field">
+              <label for="sync-token">Token</label>
+              <input id="sync-token" type="password" placeholder="tf_…" autocomplete="off" spellcheck="false" bind:value={tokenInput} />
+            </div>
+            <button class="btn btn-sm btn-primary" type="submit" disabled={checking}>{checking ? 'Checking…' : 'Connect'}</button>
+          </form>
+        {/if}
+        {#if syncError}
+          <p class="import-status error" role="status">{syncError}</p>
+        {:else if syncDone}
+          <p class="import-status" role="status">{syncDone}</p>
+        {/if}
       </section>
 
       <section>
@@ -641,6 +769,78 @@
 
   .import-status.error { color: var(--color-danger); }
 
+  /* ── Sync backend ── */
+  .sync-intro { margin: 0 0 12px; display: block; }
+  .sync-intro code { font-size: 0.95em; }
+
+  .sync-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 10px;
+    align-items: end;
+  }
+
+  .sync-form .form-field { margin-bottom: 0; min-width: 0; }
+
+  .sync-host {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sync-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--color-text-faint);
+  }
+
+  .sync-dot.tone-ok    { background: var(--color-success); }
+  .sync-dot.tone-busy  { background: var(--color-accent); }
+  .sync-dot.tone-error { background: var(--color-danger); }
+
+  .sync-note {
+    margin: 10px 0 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .sync-note.from-link { margin: 0 0 12px; }
+
+  .sync-question {
+    margin: 0 0 10px;
+    font-size: var(--text-md);
+  }
+
+  .sync-choice {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .sync-choice > .btn { align-self: flex-start; }
+
+  .choice-btn {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    color: var(--color-text);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+  }
+
+  .choice-btn:hover {
+    background: var(--color-bg);
+    border-color: var(--color-text-muted);
+  }
+
   /* ── Footer ── */
   .modal-footer {
     display: flex;
@@ -705,6 +905,9 @@
     }
 
     .hours-axis-row .hours-range-label-spacer { width: 96px; }
+
+    .sync-form { grid-template-columns: 1fr; }
+    .sync-form .btn { justify-self: start; }
 
     /* Label and segmented control side by side don't fit; stack them. */
     .field-row {

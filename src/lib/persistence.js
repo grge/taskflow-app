@@ -53,3 +53,26 @@ export function saveSync(sync) {
     // As above. The state itself is still saved under taskflow_v2.
   }
 }
+
+// The backend this device syncs with, { url, token }, or null for local-only.
+// Per device: each connects with its own token. Kept out of constants.js, which
+// the core imports: changing it would change coreVersion for no reason.
+const BACKEND_STORAGE_KEY = 'taskflow_backend';
+
+export function loadBackend() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BACKEND_STORAGE_KEY));
+    return typeof parsed?.url === 'string' && typeof parsed?.token === 'string' ? { url: parsed.url, token: parsed.token } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveBackend(backend) {
+  try {
+    if (backend) localStorage.setItem(BACKEND_STORAGE_KEY, JSON.stringify({ url: backend.url, token: backend.token }));
+    else localStorage.removeItem(BACKEND_STORAGE_KEY);
+  } catch {
+    // As above.
+  }
+}
