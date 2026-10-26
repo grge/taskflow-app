@@ -65,7 +65,10 @@ export function formatClock(seconds) {
 // A Date (or date-ish value) → relative day label for a task's peak:
 // "today" / "tomorrow" / weekday name (within the week) / "next week".
 export function peaksLabel(peak) {
-  const d = peak instanceof Date ? peak : new Date(peak);
+  // Always a copy: setHours below mutates, and the peak passed in is usually
+  // the task's own Date. Reusing it truncated the stored deadline to midnight
+  // every time the row rendered.
+  const d = new Date(peak);
   const today = new Date();
   const diffDays = Math.round((d.setHours(0, 0, 0, 0) - new Date(today).setHours(0, 0, 0, 0)) / 86_400_000);
   if (diffDays <= 0) return 'today';
