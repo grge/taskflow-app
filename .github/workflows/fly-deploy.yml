@@ -6,6 +6,7 @@ on:
     branches: [master]
     paths:
       - server/**
+      - '!server/README.md'
       - src/core/**
       - src/lib/**
       - '!src/lib/components/**'
