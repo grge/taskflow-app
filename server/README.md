@@ -51,7 +51,7 @@ You need [`flyctl`](https://fly.io/docs/flyctl/install/) and a fly.io account. R
 
 **Cost and auto-stop.** `fly.toml` stops the machine when no device is connected and starts it on the next request, which takes a second or two. An open app tab keeps its stream connected, so the machine only stops when nobody is using it. To keep it always on, set `auto_stop_machines = "off"` and `min_machines_running = 1`. Either way it is a small shared CPU with 256 MB and a 1 GB volume; check fly.io's pricing page for current numbers.
 
-**Updating.** Run `fly deploy` again after pulling changes. The app shows a notice when its core version differs from the backend's (see "Version skew" in the design doc), so redeploy when the app changes.
+**Updating.** On this repo, `.github/workflows/fly-deploy.yml` deploys after tests pass whenever a push to `master` changes what the image contains; it can also be started by hand from the Actions tab. Otherwise, run `fly deploy` again after pulling changes. The app shows a notice when its core version differs from the backend's (see "Version skew" in the design doc), so redeploy when the app changes.
 
 ## Running it elsewhere
 
