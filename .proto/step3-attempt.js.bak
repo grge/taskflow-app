@@ -1,0 +1,323 @@
+import { accumulatedPressure } from './envelope.js';
+import { advanceWork, getVisibleWorkDays, parseLocalDate } from './calendar.js';
+import { splitTaskAcrossDays, computeFreeIntervals } from './scheduling.js';
+import { schedulableMinutes } from './tasks.js';
+import { SCHEDULING_HORIZON_DAYS } from './constants.js';
+
+// ─── packSequence ────────────────────────────────────────────────────────────
+
+// Place tasks in sequence into the schedule. Manual blocks carve the work
+// window into free intervals; each task must fit entirely within a single
+// contiguous run of free intervals starting from the current cursor position.
+// Intervals too small to fit the task are skipped entirely — never partially
+// filled.
+//
+// Returns an array of ScheduledBlock objects, or null if any task in the
+// sequence doesn't fit in the remaining window.
+export function packSequence(sequence, schedule, manualBlocks = [], fixedBlocks = []) {
+  const allBlocking = [...manualBlocks, ...fixedBlocks];
+  const bufferMinutes = schedule.bufferMinutes ?? 0;
+  const visibleDays = getVisibleWorkDays(schedule, SCHEDULING_HORIZON_DAYS);
+  if (!visibleDays.length) return [];
+
+  const result = [];
+  let cursorDate = new Date();
+
+  for (let taskIndex = 0; taskIndex < sequence.length; taskIndex++) {
+    const task = sequence[taskIndex];
+    const isLast = taskIndex === sequence.length - 1;
+    const intervals = computeFreeIntervals(visibleDays, allBlocking, cursorDate, bufferMinutes);
+
+    // We try each interval's start in order. splitTaskAcrossDays handles
+    // multi-day splits at end-of-day; we additionally check that all blocks
+    // fit within free intervals (i.e. don't cross manual block exclusion zones).
+    let placed = false;
+
+    for (let i = 0; i < intervals.length; i++) {
+      const iv = intervals[i];
+      const blocks = splitTaskAcrossDays(
+        task.id, iv.date, iv.startMinutes, schedulableMinutes(task), visibleDays
+      );
+      if (blocks === null) return null; // doesn't fit in window at all
+
+      // Check every block falls within a free interval.
+      const fits = blocks.every(b =>
+        intervals.some(fiv =>
+          fiv.date === b.date &&
+          fiv.startMinutes <= b.startMinutes &&
+          fiv.endMinutes >= b.startMinutes + b.durationMinutes
+        )
+      );
+
+      if (fits) {
+        result.push(...blocks);
+        // Advance cursor to end of last placed block, plus inter-task buffer
+        // (skip buffer after the last task).
+        const last = blocks[blocks.length - 1];
+        cursorDate = parseLocalDate(last.date);
+        cursorDate.setMinutes(last.startMinutes + last.durationMinutes + (isLast ? 0 : bufferMinutes));
+        placed = true;
+        break;
+      }
+    }
+
+    if (!placed) return null; // no gap large enough for this task
+  }
+
+  return result;
+}
+
+// ─── totalCost ───────────────────────────────────────────────────────────────
+
+export function totalCost(blocks, tasks) {
+  let cost = 0;
+  for (const task of tasks) {
+    const taskBlocks = blocks.filter(b => b.taskId === task.id);
+    if (!taskBlocks.length) continue;
+    const last = taskBlocks.reduce((a, b) =>
+      (b.partIndex ?? 1) > (a.partIndex ?? 1) ? b : a
+    );
+    const completionTime = parseLocalDate(last.date);
+    completionTime.setMinutes(last.startMinutes + last.durationMinutes);
+    cost += accumulatedPressure(task, completionTime);
+  }
+  return cost;
+}
+
+// ─── greedyScore ─────────────────────────────────────────────────────────────
+
+function greedyScore(task, currentWorkTime, schedule) {
+  const rem = schedulableMinutes(task);
+  const completionTime = advanceWork(currentWorkTime, rem, schedule);
+  const nowCost = accumulatedPressure(task, currentWorkTime);
+  const completeCost = accumulatedPressure(task, completionTime);
+  return (completeCost - nowCost) / (rem / 60);
+}
+
+// ─── work-time cost model ────────────────────────────────────────────────────
+
+// The search below scores orderings numerically instead of re-packing them.
+// This is sound because of two properties of the cost model:
+//
+//   1. accumulatedPressure(task, C) depends only on *that task's* completion
+//      time — no term references any other task. The objective is separable.
+//   2. Consuming N work-minutes from a given start lands at the same calendar
+//      instant regardless of which tasks those minutes belong to, so a
+//      sequence's completion times are determined by the running total of
+//      durations ahead of each task.
+//
+// So an ordering can be scored by walking prefix sums of duration and
+// converting each running total to a calendar instant — no block objects, no
+// free-interval recomputation, no UUID minting. packSequence stays the
+// authority on *feasibility* (fragmented days, split rules); this model only
+// ranks orderings that are already known to fit.
+//
+// Builds a lookup from work-minutes-from-now to completion cost for one task.
+function makeCostModel(tasks, schedule) {
+  // packSequence puts `bufferMinutes` *between* consecutive tasks, so every
+  // task after the first is pushed back by one buffer. The running total must
+  // include those gaps: without them the model drifts further ahead of reality
+  // with each task (2h+ by task 12 at a 15-minute buffer) and ranks orderings
+  // against completion times that never happen.
+  const buffer = schedule.bufferMinutes ?? 0;
+  const durations = tasks.map(t => schedulableMinutes(t));
+  const origin = new Date();
+
+  // advanceWork is the expensive part (it walks day boundaries), so resolve
+  // each distinct prefix total once rather than per candidate move.
+  const instantAt = new Map();
+  const toInstant = (workMinutes) => {
+    let hit = instantAt.get(workMinutes);
+    if (hit === undefined) {
+      hit = advanceWork(origin, workMinutes, schedule);
+      instantAt.set(workMinutes, hit);
+    }
+    return hit;
+  };
+
+  return { durations, buffer, toInstant };
+}
+
+// Cost of `order` from position `from` onward, given the work-minutes already
+// consumed by the prefix. Moving a task only perturbs completion times at or
+// after the lower of its two positions, so the untouched prefix is reused.
+function suffixCost(order, from, elapsedBefore, tasks, model) {
+  let cost = 0;
+  let elapsed = elapsedBefore;
+  for (let k = from; k < order.length; k++) {
+    const i = order[k];
+    elapsed += model.buffer + model.durations[i];
+    cost += accumulatedPressure(tasks[i], model.toInstant(elapsed));
+  }
+  return cost;
+}
+
+// Best-improvement insertion search over orderings, scored numerically.
+// Returns the improved order (indices into `tasks`).
+function optimizeOrder(initialOrder, tasks, model) {
+  let order = [...initialOrder];
+  const n = order.length;
+  if (n < 2) return order;
+
+  // Bounded for predictability on large backlogs. Convergence is typically far
+  // sooner; the cap only bites on pathological instances.
+  const MAX_PASSES = 30;
+
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    let movedAny = false;
+
+    for (let i = 0; i < order.length; i++) {
+      const taskIdx = order[i];
+      const rest = order.slice(0, i).concat(order.slice(i + 1));
+
+      // Prefix scaffolding over `rest`: work-minutes and cost before each slot.
+      const prefixElapsed = new Array(rest.length + 1);
+      const prefixCost = new Array(rest.length + 1);
+      prefixElapsed[0] = 0;
+      prefixCost[0] = 0;
+      for (let k = 0; k < rest.length; k++) {
+        const e = prefixElapsed[k] + (k > 0 ? model.buffer : 0) + model.durations[rest[k]];
+        prefixElapsed[k + 1] = e;
+        prefixCost[k + 1] = prefixCost[k] + accumulatedPressure(tasks[rest[k]], model.toInstant(e));
+      }
+
+      let bestPos = i;
+      let bestCost = Infinity;
+      for (let j = 0; j <= rest.length; j++) {
+        const startElapsed = prefixElapsed[j];
+        const ownElapsed = startElapsed + (j > 0 ? model.buffer : 0) + model.durations[taskIdx];
+        const own = accumulatedPressure(tasks[taskIdx], model.toInstant(ownElapsed));
+        const total = prefixCost[j] + own + suffixCost(rest, j, ownElapsed, tasks, model);
+        if (total < bestCost - 1e-12) {
+          bestCost = total;
+          bestPos = j;
+        }
+      }
+
+      if (bestPos !== i) {
+        rest.splice(bestPos, 0, taskIdx);
+        order = rest;
+        movedAny = true;
+      }
+    }
+
+    if (!movedAny) break;
+  }
+
+  return order;
+}
+
+// ─── autoSchedule ────────────────────────────────────────────────────────────
+
+export function autoSchedule(allTasks, schedule, fixedBlocks = []) {
+  const manualBlocks = allTasks
+    .filter(t => t.scheduledBlocks.length > 0)
+    .flatMap(t => t.scheduledBlocks);
+
+  const unscheduled = allTasks
+    .filter(t => !t.isCompleted && !t.isDeleted && !t.isLocked && t.scheduledBlocks.length === 0);
+
+  if (!unscheduled.length) return [];
+
+  // ── Phase 1: greedy initial ordering ────────────────────────────────────────
+  const sequence = [];
+  const remaining = [...unscheduled];
+  let currentTime = new Date();
+
+  while (remaining.length > 0) {
+    let bestTask = null;
+    let bestScore = -Infinity;
+
+    for (const task of remaining) {
+      const score = greedyScore(task, currentTime, schedule);
+      if (score > bestScore) {
+        bestScore = score;
+        bestTask = task;
+      }
+    }
+
+    sequence.push(bestTask);
+    remaining.splice(remaining.indexOf(bestTask), 1);
+    currentTime = advanceWork(currentTime, schedulableMinutes(bestTask), schedule);
+  }
+
+  // ── Phase 2: pack and check window capacity ──────────────────────────────────
+  let blocks = packSequence(sequence, schedule, manualBlocks, fixedBlocks);
+
+  if (blocks === null) {
+    // Some tasks don't fit. Binary-search for the longest prefix that does fit,
+    // leaving the rest unscheduled.
+    let lo = 0, hi = sequence.length;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi + 1) / 2);
+      if (packSequence(sequence.slice(0, mid), schedule, manualBlocks, fixedBlocks) !== null) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    blocks = lo > 0 ? packSequence(sequence.slice(0, lo), schedule, manualBlocks, fixedBlocks) : [];
+  }
+
+  let cost = totalCost(blocks, sequence);
+
+  // ── Phase 3: local search over orderings ─────────────────────────────────────
+  // Search numerically (see the work-time cost model above), then pack the
+  // winner once. Previously every candidate move was evaluated by re-packing
+  // the whole sequence, which made the search O(n) packs deep and dominated
+  // the runtime.
+  const schedulable = sequence.slice(0, blocks.length > 0
+    ? new Set(blocks.map(b => b.taskId)).size
+    : 0);
+
+  if (schedulable.length > 1) {
+    const model = makeCostModel(schedulable, schedule);
+    const improvedOrder = optimizeOrder(
+      schedulable.map((_, i) => i), schedulable, model
+    );
+
+    let order = improvedOrder.map(i => schedulable[i]);
+    const candidateBlocks = packSequence(order, schedule, manualBlocks, fixedBlocks);
+
+    // The numeric model assumes work flows contiguously; a fragmented calendar
+    // can make an otherwise-cheaper ordering unpackable, and packing can shift
+    // real completion times away from the model's estimate. Keep the new order
+    // only if packing succeeds and the true cost actually improves.
+    if (candidateBlocks !== null) {
+      const candidateCost = totalCost(candidateBlocks, order);
+      if (candidateCost < cost) {
+        blocks = candidateBlocks;
+        cost = candidateCost;
+      } else {
+        order = [...schedulable];
+      }
+    } else {
+      order = [...schedulable];
+    }
+
+    // Adjacent-swap polish against the *packed* cost. The numeric search can
+    // settle on an order whose modelled cost beats its real one — day splits
+    // and interval skipping move completion times in ways the flat work-time
+    // model cannot see. A bounded sweep of real repacks recovers that, at a
+    // cost of O(n) packs per pass rather than the old O(n²) per move.
+    const MAX_POLISH_PASSES = 4;
+    for (let pass = 0; pass < MAX_POLISH_PASSES; pass++) {
+      let improved = false;
+      for (let i = 0; i < order.length - 1; i++) {
+        [order[i], order[i + 1]] = [order[i + 1], order[i]];
+        const swapped = packSequence(order, schedule, manualBlocks, fixedBlocks);
+        const swappedCost = swapped === null ? Infinity : totalCost(swapped, order);
+        if (swappedCost < cost) {
+          blocks = swapped;
+          cost = swappedCost;
+          improved = true;
+        } else {
+          [order[i], order[i + 1]] = [order[i + 1], order[i]]; // revert
+        }
+      }
+      if (!improved) break;
+    }
+  }
+
+  return blocks;
+}
