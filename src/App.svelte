@@ -467,6 +467,9 @@
   @media (max-width: 759px), (max-height: 500px) and (pointer: coarse) {
     .task-panel {
       width: auto;
+      /* The 60vw backstop is for the side-by-side layout. Left in place here it
+         caps the only panel on screen at 60% of the phone. */
+      max-width: none;
       flex: 1;
       min-width: 0;
       border-right: none;
