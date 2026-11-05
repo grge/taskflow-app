@@ -36,6 +36,12 @@
   --color-shadow:            rgba(42, 37, 33, 0.08);
   --color-inset-shadow:      rgba(42, 37, 33, 0.13);
   --color-inset-highlight:   rgba(255, 255, 255, 0.45);
+
+  --chart-added:             #eb6834;
+  --chart-done:              #2a78d6;
+  --chart-dropped:           #1baf7a;
+  --chart-neutral:           var(--color-text-faint);
+  --chart-ink:               var(--color-text);
 }
 
 /* ── Theme: Sage Morning ── */
@@ -75,6 +81,12 @@
   --color-shadow:            rgba(28, 42, 28, 0.08);
   --color-inset-shadow:      rgba(28, 42, 28, 0.13);
   --color-inset-highlight:   rgba(255, 255, 255, 0.45);
+
+  --chart-added:             #eb6834;
+  --chart-done:              #2a78d6;
+  --chart-dropped:           #1baf7a;
+  --chart-neutral:           var(--color-text-faint);
+  --chart-ink:               var(--color-text);
 }
 
 /* ── Theme: Ember Night (dark warm) ── */
@@ -114,6 +126,12 @@
   --color-shadow:            rgba(0, 0, 0, 0.18);
   --color-inset-shadow:      rgba(0, 0, 0, 0.5);
   --color-inset-highlight:   rgba(237, 216, 184, 0.28);
+
+  --chart-added:             #d95926;
+  --chart-done:              #3987e5;
+  --chart-dropped:           #199e70;
+  --chart-neutral:           var(--color-text-faint);
+  --chart-ink:               var(--color-text);
 }
 
 /* ── Theme: Dusk (dark cool) ── */
@@ -153,4 +171,10 @@
   --color-shadow:            rgba(0, 0, 0, 0.18);
   --color-inset-shadow:      rgba(0, 0, 0, 0.5);
   --color-inset-highlight:   rgba(226, 219, 208, 0.28);
+
+  --chart-added:             #d95926;
+  --chart-done:              #3987e5;
+  --chart-dropped:           #199e70;
+  --chart-neutral:           var(--color-text-faint);
+  --chart-ink:               var(--color-text);
 }

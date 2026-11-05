@@ -376,6 +376,37 @@ test('delete a task', async () => {
   assertEqual(await page.locator('.task-card').count(), 0, 'gone from the list');
 });
 
+test('Insights works from task dates on a device with no backend', async () => {
+  const done = task('Done', { isCompleted: true, completedAt: new Date(NOW - DAY).toISOString(), createdAt: new Date(NOW - 5 * DAY).toISOString() });
+  const open1 = task('Open one', { estimatedMinutes: 120 });
+  const open2 = task('Open two', { createdAt: new Date(NOW - 20 * DAY).toISOString(), onset: new Date(+NOW + 10 * DAY).toISOString(), peak: new Date(+NOW + 20 * DAY).toISOString() });
+  const { page } = await open({ tasks: [done, open1, open2] });
+  await page.getByRole('button', { name: 'Insights', exact: true }).click();
+  await page.waitForSelector('.insights .tile');
+  assertEqual(await page.locator('.tile-value').first().textContent(), '3.0h', 'backlog is the open tasks');
+  assert((await page.locator('.source-note').textContent()).includes('task dates only'), 'says what it is based on');
+  assertEqual((await page.locator('.let-alone li').allTextContents()).length, 1, 'one old task that is not pressing');
+  assert((await page.locator('.let-alone').textContent()).includes('Open two'), 'and it is the old one');
+
+  const rows = page.locator('.table-view tbody tr');
+  await page.locator('.table-view summary').click();
+  const days = await rows.count();
+  await page.getByRole('button', { name: 'Weeks', exact: true }).click();
+  assert((await rows.count()) < days, 'weeks are fewer rows than days');
+
+  await page.locator('.hit').first().hover();
+  assertEqual(await page.locator('.tip').count(), 1, 'hovering a period shows its numbers');
+  assertEqual(pageErrors.length, 0, 'no page errors');
+});
+
+test('Insights stays inside a phone screen', async () => {
+  const { page } = await open({ tasks: [task('Alpha')] }, { viewport: { width: 390, height: 844 } });
+  await page.evaluate(() => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Insights').click());
+  await page.waitForSelector('.insights .tile');
+  const [content, screen] = await page.evaluate(() => [document.querySelector('.tab-panel').scrollWidth, innerWidth]);
+  assert(content <= screen, `no sideways scroll (${content} in ${screen})`);
+});
+
 test('changes survive a reload', async () => {
   const a = task('Alpha');
   const { page } = await open({ tasks: [a] });

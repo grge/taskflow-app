@@ -203,6 +203,18 @@ export function disconnect() {
   return unsent;
 }
 
+// The backend's whole operation log, for Insights, or null when there is no
+// backend or it can't be read (offline, or a log pruned by HISTORY_LIMIT).
+export async function fetchOpLog() {
+  if (!backend) return null;
+  try {
+    const res = await fetch(`${backend.url.replace(/\/+$/, '')}/v1/ops?since=0`, { headers: { Authorization: `Bearer ${backend.token}` } });
+    return res.ok ? (await res.json()).ops : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── export and import ───────────────────────────────────────────────────────
 
 // The current data as an export file: the taskflow_v2 shape, indented.

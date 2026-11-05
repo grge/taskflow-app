@@ -302,6 +302,40 @@ test('a revoked token stops sync and says so', async () => {
   assert((await stored(page)).tasks[0].scheduledBlocks.length > 0, 'the edit is kept on the device');
 });
 
+test('Insights reads the backend\'s log, which knows what task dates can\'t', async () => {
+  const be = await startBackend();
+  const page = await device({ seed: { tasks: [task('Alpha')] } });
+  await connectForm(page, be.url, be.token);
+  await synced(page);
+  const id = (await stored(page)).tasks[0].id;
+  const res = await fetch(`${be.url}/v1/ops`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${be.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ops: [op('task.setRemaining', { id, minutes: 180 })] })
+  });
+  assert(res.ok, 'the backend took the re-estimate');
+  await until(async () => (await stored(page)).tasks[0].remainingOverride?.remainingMinutes === 180, 'the device has it');
+
+  await page.getByRole('button', { name: 'Insights', exact: true }).click();
+  const reestimates = page.locator('.bridge-row', { hasText: 'Re-estimates' }).locator('.bridge-value');
+  await until(async () => (await reestimates.textContent()) !== '0h', 'the re-estimate shows, which only the log knows');
+  assert((await reestimates.textContent()).startsWith('+'), 'as an increase');
+  assertEqual(await page.locator('.source-note').count(), 0, 'no task-dates note');
+});
+
+test('Insights falls back to task dates when the backend is out of reach', async () => {
+  const be = await startBackend();
+  const page = await device({ seed: { tasks: [task('Alpha')] } });
+  await connectForm(page, be.url, be.token);
+  await synced(page);
+  await be.stop();
+  await until(async () => (await pill(page).textContent()).trim() === 'Offline', 'pill says Offline');
+  await page.getByRole('button', { name: 'Insights', exact: true }).click();
+  await until(async () => (await page.locator('.source-note').count()) === 1, 'says it is on task dates');
+  assert((await page.locator('.source-note').textContent()).includes("couldn't be read"), 'and why');
+  assertEqual(await page.locator('.tile-value').first().textContent(), '0.5h', 'still shows the backlog');
+});
+
 test('edits made while the backend is down sync when it returns', async () => {
   const be = await startBackend();
   const page = await device({ seed: { tasks: [task('Alpha')] } });

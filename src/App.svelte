@@ -17,7 +17,7 @@
   import AddTaskModal from './lib/components/AddTaskModal.svelte';
   import AddBlockModal from './lib/components/AddBlockModal.svelte';
   import SettingsModal from './lib/components/SettingsModal.svelte';
-  import InsightsModal from './lib/components/InsightsModal.svelte';
+  import InsightsPanel from './lib/components/insights/InsightsPanel.svelte';
 
   initPersistence();
   initClock();
@@ -158,8 +158,8 @@
     </main>
   {:else if activeTab.value === 'insights'}
     <main class="tab-panel">
-      <div class="inline-panel">
-        <InsightsModal inline />
+      <div class="inline-panel insights-panel">
+        <InsightsPanel />
       </div>
     </main>
   {:else if activeTab.value === 'settings'}
@@ -184,10 +184,6 @@
 
 {#if activeModal.value === 'settings'}
   <SettingsModal />
-{/if}
-
-{#if activeModal.value === 'insights'}
-  <InsightsModal />
 {/if}
 
 <style>
@@ -441,6 +437,10 @@
   .inline-panel {
     width: 100%;
     max-width: 600px;
+  }
+
+  .insights-panel {
+    max-width: 1040px;
   }
 
   :global(.inline-wrap) {
