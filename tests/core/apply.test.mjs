@@ -211,7 +211,48 @@ test('task.complete clears blocks and stamps completedAt from the operation', ()
 
 test('task.delete is soft', () => {
   const a = task('A');
-  assert.equal(byId(run(state({ tasks: [a] }), 'task.delete', { id: a.id }).state, a.id).isDeleted, true);
+  const gone = byId(run(state({ tasks: [a] }), 'task.delete', { id: a.id }).state, a.id);
+  assert.equal(gone.isDeleted, true);
+  assert.equal(+gone.deletedAt, +NOW);
+});
+
+test('deleting, completing and restoring count as modifying the task', () => {
+  // mergeStates keeps whichever copy was modified last, so a change that doesn't
+  // stamp lastModifiedAt loses to the backend's untouched copy on first connect.
+  const a = task('A');
+  const s = state({ tasks: [a] });
+  assert.equal(+byId(run(s, 'task.delete', { id: a.id }).state, a.id).lastModifiedAt, +NOW);
+  const done = run(s, 'task.complete', { id: a.id }).state;
+  assert.equal(+byId(done, a.id).lastModifiedAt, +NOW);
+  const later = local(28, 11);
+  assert.equal(+byId(run(done, 'task.restore', { id: a.id }, later).state, a.id).lastModifiedAt, +later);
+});
+
+for (const type of ['task.complete', 'task.delete']) {
+  test(`${type} stops the task's timer and keeps the time so far`, () => {
+    const a = task('A');
+    let s = run(state({ tasks: [a] }), 'timer.start', { id: a.id }).state;
+    s = run(s, type, { id: a.id }, local(28, 11)).state;
+    assert.equal(s.activeTimer, null);
+    assert.equal(byId(s, a.id).elapsedSeconds, 3600);
+  });
+
+  test(`${type} leaves another task's timer running`, () => {
+    const a = task('A'), b = task('B');
+    const running = run(state({ tasks: [a, b] }), 'timer.start', { id: b.id }).state;
+    const s = run(running, type, { id: a.id }, local(28, 11)).state;
+    assert.equal(s.activeTimer, running.activeTimer);
+    assert.equal(byId(s, b.id).elapsedSeconds, 0);
+  });
+}
+
+test('a paused timer is cleared by completing its task, its time kept', () => {
+  const a = task('A');
+  let s = run(state({ tasks: [a] }), 'timer.start', { id: a.id }).state;
+  s = run(s, 'timer.pause', { id: a.id }, local(28, 10, 30)).state;
+  s = run(s, 'task.complete', { id: a.id }, local(28, 12)).state;
+  assert.equal(s.activeTimer, null);
+  assert.equal(byId(s, a.id).elapsedSeconds, 1800);
 });
 
 // ─── schedule.next ───────────────────────────────────────────────────────────

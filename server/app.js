@@ -29,7 +29,7 @@ const PING_INTERVAL_MS = 25_000;  // under the idle timeouts of common proxies
 export function createApp({ store, config }) {
   const {
     allowedOrigins, coreVersion, homeTimeZone,
-    historyLimit = 10_000, pruneEvery = 500, maxBodyBytes = 5 * 1024 * 1024,
+    historyLimit = null, pruneEvery = 500, maxBodyBytes = 5 * 1024 * 1024,
     rateLimit = { perMinute: 60, burst: 300 },
     clock = () => new Date(),
     log = () => {},
@@ -139,7 +139,7 @@ export function createApp({ store, config }) {
     if (applied.length) {
       hash = stateHash(state);
       broadcast({ type: 'ops', version, ops: applied, hash });
-      if (version % pruneEvery < applied.length) store.prune(version, historyLimit);
+      if (historyLimit && version % pruneEvery < applied.length) store.prune(version, historyLimit);
       log(`applied ${applied.length} op(s) from ${actor} → v${version}`);
     }
     return { version, hash, results };

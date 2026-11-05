@@ -15,6 +15,7 @@ export function createTask({ id, description, onset, peak, peakPressure, estimat
     createdAt:       new Date(now),
     lastModifiedAt:  new Date(now),
     completedAt:     null,
+    deletedAt:       null,
     scheduledBlocks: [],
     elapsedSeconds:  0,
     // { atElapsedSeconds, remainingMinutes } | null. When set, remaining is

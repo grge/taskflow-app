@@ -61,7 +61,7 @@ async function serve() {
     allowedOrigins: (env.ALLOWED_ORIGINS ?? DEFAULT_ORIGINS).split(',').map(s => s.trim().replace(/\/+$/, '')).filter(Boolean),
     coreVersion: coreVersion(),
     homeTimeZone,
-    historyLimit: Number(env.HISTORY_LIMIT ?? 10_000),
+    historyLimit: env.HISTORY_LIMIT ? Number(env.HISTORY_LIMIT) : null,
     rateLimit: { perMinute: Number(env.RATE_LIMIT_PER_MINUTE ?? 60), burst: Number(env.RATE_LIMIT_BURST ?? 300) },
     log: msg => console.log(`${new Date().toISOString()} ${msg}`)
   };
@@ -142,11 +142,21 @@ async function exportData() {
   process.stdout.write(serializeState(state, 2) + '\n');
 }
 
+// Everything needed to rebuild or study the data: the current state and the
+// whole operation log, as one JSON document. Tokens stay out of it.
+async function backup() {
+  const { serializeState } = await import('../src/core/state.js');
+  const store = await openStoreHere();
+  const { version, state, ops } = store.backup();
+  store.close();
+  process.stdout.write(`{"version":${version},"state":${serializeState(state)},"ops":${JSON.stringify(ops)}}\n`);
+}
+
 // ─── main ────────────────────────────────────────────────────────────────────
 
 const [command = 'serve', ...rest] = process.argv.slice(2);
-const commands = { serve, token: () => token(rest), export: exportData };
+const commands = { serve, token: () => token(rest), export: exportData, backup };
 if (!commands[command]) {
-  die(`Unknown command "${command}". Commands: serve, token create|list|revoke, export.`);
+  die(`Unknown command "${command}". Commands: serve, token create|list|revoke, export, backup.`);
 }
 await commands[command]();

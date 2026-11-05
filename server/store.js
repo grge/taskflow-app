@@ -5,8 +5,10 @@
 //
 // The current state is written with every operation, in the same transaction
 // as its log entry, so a restart resumes exactly where it stopped and there is
-// nothing to replay. The log is kept for devices catching up (/v1/ops) and,
-// later, for undo and history; it is pruned to the newest HISTORY_LIMIT entries.
+// nothing to replay. The log is kept for devices catching up (/v1/ops) and as
+// the record of what happened and when, which the state doesn't hold: it is the
+// source for analytics and, later, undo. It is kept whole unless HISTORY_LIMIT
+// asks for it to be pruned to the newest entries.
 
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomBytes } from 'node:crypto';
@@ -53,6 +55,7 @@ export function openStore(file) {
     putOp:       db.prepare('INSERT INTO ops (version, id, op, result, received_at) VALUES (?, ?, ?, ?, ?)'),
     findOp:      db.prepare('SELECT version, result FROM ops WHERE id = ?'),
     opsSince:    db.prepare('SELECT op FROM ops WHERE version > ? ORDER BY version'),
+    allOps:      db.prepare('SELECT version, op, result, received_at FROM ops ORDER BY version'),
     prune:       db.prepare('DELETE FROM ops WHERE version <= ?'),
     getMeta:     db.prepare('SELECT value FROM meta WHERE key = ?'),
     putMeta:     db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value'),
@@ -106,6 +109,19 @@ export function openStore(file) {
     opsSince(since) {
       if (since < this.prunedThrough()) return null;
       return q.opsSince.all(since).map(r => JSON.parse(r.op));
+    },
+
+    // The current state and every operation still held, read as one snapshot.
+    backup() {
+      return transaction(() => ({
+        ...this.load(),
+        ops: q.allOps.all().map(r => ({
+          version: r.version,
+          op: JSON.parse(r.op),
+          result: r.result === null ? undefined : JSON.parse(r.result),
+          receivedAt: r.received_at
+        }))
+      }));
     },
 
     prunedThrough() {

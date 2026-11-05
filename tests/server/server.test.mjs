@@ -96,6 +96,21 @@ test('state, log and duplicate detection survive a restart', async () => {
   assert.equal(retry.results[0].status, 'duplicate');
 });
 
+test('the log is kept whole by default, and a backup holds all of it', async () => {
+  const srv = await startServer({ pruneEvery: 5 });
+  after(() => srv.stop());
+  const api = authed(srv.url, srv.store.createToken('t', 'write'));
+  for (let i = 0; i < 12; i++) await api('/v1/ops', { method: 'POST', body: JSON.stringify({ ops: [addTask(`k${i}`, `K${i}`)] }) });
+  assert.equal((await (await api('/v1/ops?since=0')).json()).ops.length, 12);
+
+  const { version, state, ops } = srv.store.backup();
+  assert.equal(version, 12);
+  assert.equal(state.tasks.length, 12);
+  assert.deepEqual(ops.map(o => o.version), Array.from({ length: 12 }, (_, i) => i + 1));
+  assert.equal(ops[0].op.type, 'task.add');
+  assert.ok(ops[0].receivedAt);
+});
+
 test('pruned history answers 410, and the stream says reset', async () => {
   const srv = await startServer({ historyLimit: 3, pruneEvery: 5 });
   after(() => srv.stop());

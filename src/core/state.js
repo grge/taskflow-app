@@ -6,7 +6,7 @@
 
 import { DEFAULT_WORK_SCHEDULE } from '../lib/constants.js';
 
-const TASK_DATE_FIELDS = ['createdAt', 'lastModifiedAt', 'completedAt', 'onset', 'peak'];
+const TASK_DATE_FIELDS = ['createdAt', 'lastModifiedAt', 'completedAt', 'deletedAt', 'onset', 'peak'];
 
 export function emptyState() {
   return { tasks: [], workSchedule: DEFAULT_WORK_SCHEDULE, fixedBlocks: [], activeTimer: null };

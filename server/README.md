@@ -80,7 +80,7 @@ Anywhere but `localhost` it must be served over HTTPS (put a reverse proxy such 
 | `ALLOWED_ORIGINS` | `https://grge.github.io` | Comma-separated origins the app may be served from |
 | `DATA_DIR` | `./data` (`/data` in the image) | Where `taskflow.db` lives |
 | `PORT`, `HOST` | `8080`, `0.0.0.0` | Where to listen |
-| `HISTORY_LIMIT` | `10000` | Operations kept in the log. Devices further behind reload the full state |
+| `HISTORY_LIMIT` | unset (keep all) | Prune the log to this many operations. Devices further behind reload the full state, and history before that point is gone, including for analytics |
 | `RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT_BURST` | `60`, `300` | Write limit per token: a burst for flushing an offline queue, then a steady rate |
 | `PUBLIC_URL` | `https://$FLY_APP_NAME.fly.dev` on fly | The backend's URL, for `token create --link` |
 | `APP_URL` | `https://grge.github.io/taskflow-app/` | The app's URL, for `token create --link` |
@@ -92,7 +92,8 @@ taskflow-server [serve]                                   run the backend
 taskflow-server token create --name N [--scope read] [--link] [--url URL]
 taskflow-server token list
 taskflow-server token revoke N                            stops working at once; open streams close within 30s
-taskflow-server export > backup.json                      the current data, in the app's export format
+taskflow-server export > export.json                      the current data, in the app's export format
+taskflow-server backup > backup.json                      the current data and the whole operation log
 ```
 
 On fly, prefix any of these with `fly ssh console -C "…"`. The export file imports in the app (Settings → Your data), so it is also a way to leave.
@@ -102,8 +103,10 @@ On fly, prefix any of these with `fly ssh console -C "…"`. The export file imp
 fly.io snapshots volumes daily and keeps them for a few days (`fly volumes snapshots list`). For a copy you hold yourself:
 
 ```
-fly ssh console -C "taskflow-server export" > taskflow-backup.json
+fly ssh console -C "taskflow-server backup" > taskflow-backup.json
 ```
+
+That file holds the current state under `state` and the operation log under `ops`. The log is the only record of when tasks were deleted, how estimates changed and when timers ran, so back this up rather than `export`, whose file holds only the state (though `export` is the one the app can import). Tokens are in neither.
 
 ## Testing
 

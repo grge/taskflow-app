@@ -50,7 +50,7 @@ const isActive = t => !t.isCompleted && !t.isDeleted;
 
 // Patches can arrive with dates as strings (operations are JSON-safe) or as
 // Dates; either way the stored value is a fresh Date, never the caller's.
-const DATE_FIELDS = ['onset', 'peak', 'createdAt', 'lastModifiedAt', 'completedAt'];
+const DATE_FIELDS = ['onset', 'peak', 'createdAt', 'lastModifiedAt', 'completedAt', 'deletedAt'];
 
 function normalizePatch(patch) {
   const out = { ...patch };
@@ -69,6 +69,12 @@ function rescaleBlocks(blocks, oldTotal, newTotal) {
       : newTotal - arr.slice(0, i).reduce((s, prev) => s + Math.round(newTotal * (prev.durationMinutes / oldTotal) / SNAP_MINUTES) * SNAP_MINUTES, 0);
     return { ...b, durationMinutes: Math.max(SNAP_MINUTES, share) };
   });
+}
+
+// A task that is finished with takes its timer with it, flushed up to now: a
+// timer left running would keep adding to the task's actual time, unseen.
+function stopTimerOn(state, id, context) {
+  return state.activeTimer?.taskId === id ? handlers['timer.finish'](state, { id }, context).state : state;
 }
 
 // ─── tasks ───────────────────────────────────────────────────────────────────
@@ -100,18 +106,20 @@ const handlers = {
   },
 
   // deleteTask
-  'task.delete'(state, { id }) {
-    return mapTask(state, id, t => ({ ...t, isDeleted: true }));
+  'task.delete'(state, { id }, context) {
+    const { now } = context;
+    return mapTask(stopTimerOn(state, id, context), id, t => ({ ...t, isDeleted: true, deletedAt: new Date(now), lastModifiedAt: new Date(now) }));
   },
 
   // completeTask
-  'task.complete'(state, { id }, { now }) {
-    return mapTask(state, id, t => ({ ...t, isCompleted: true, completedAt: new Date(now), scheduledBlocks: [] }));
+  'task.complete'(state, { id }, context) {
+    const { now } = context;
+    return mapTask(stopTimerOn(state, id, context), id, t => ({ ...t, isCompleted: true, completedAt: new Date(now), lastModifiedAt: new Date(now), scheduledBlocks: [] }));
   },
 
   // restoreTask
-  'task.restore'(state, { id }) {
-    return mapTask(state, id, t => ({ ...t, isCompleted: false, completedAt: null }));
+  'task.restore'(state, { id }, { now }) {
+    return mapTask(state, id, t => ({ ...t, isCompleted: false, completedAt: null, lastModifiedAt: new Date(now) }));
   },
 
   // toggleLock, made absolute
