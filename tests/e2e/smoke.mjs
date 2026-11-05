@@ -121,6 +121,21 @@ test('renders seeded tasks', async () => {
   assertEqual(await page.locator('.task-card').count(), 2, 'task rows');
 });
 
+test('sort by size and by peak pressure', async () => {
+  // Alpha is the biggest estimate but has the least left; Bravo and Delta tie
+  // on size, and Charlie and Delta on peak, so ties fall to current pressure.
+  const a = task('Alpha',   { estimatedMinutes: 120, elapsedSeconds: 100 * 60, peakPressure: 0.9 });
+  const b = task('Bravo',   { estimatedMinutes: 60, peakPressure: 0.3 });
+  const c = task('Charlie', { estimatedMinutes: 30, peakPressure: 0.6 });
+  const d = task('Delta',   { estimatedMinutes: 60, peakPressure: 0.6, onset: new Date(NOW - DAY / 2).toISOString() });
+  const { page } = await open({ tasks: [a, b, c, d] });
+  const order = () => page.locator('.task-list-scroll .task-desc').allTextContents();
+  await page.locator('.sort-pill', { hasText: 'Size' }).click();
+  assertEqual(await order(), ['Bravo', 'Delta', 'Charlie', 'Alpha'], 'size order');
+  await page.locator('.sort-pill', { hasText: 'Peak' }).click();
+  assertEqual(await order(), ['Alpha', 'Charlie', 'Delta', 'Bravo'], 'peak order');
+});
+
 test('rendering a task leaves its deadline alone', async () => {
   // peaksLabel once truncated the task's own peak Date to midnight while
   // rendering "peaks Friday", and the next save persisted it.

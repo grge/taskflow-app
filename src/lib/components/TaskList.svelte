@@ -3,6 +3,7 @@
   import { openModal, expandedTaskId } from '../../stores/ui.svelte.js';
   import { pAt, getPressureTier } from '../envelope.js';
   import { clock } from '../../stores/clock.svelte.js';
+  import { remainingMinutes } from '../tasks.js';
   import TaskRow from './TaskRow.svelte';
 
   let showCompleted = $state(false);
@@ -12,6 +13,8 @@
     { key: 'pressure',  label: 'Pressure'  },
     { key: 'name',      label: 'Name'      },
     { key: 'scheduled', label: 'Scheduled' },
+    { key: 'size',      label: 'Size'      },
+    { key: 'peak',      label: 'Peak'      },
   ];
 
   function firstBlockStart(task) {
@@ -37,6 +40,14 @@
           if (bs_ === Infinity) return -1;
           return as_ < bs_ ? -1 : as_ > bs_ ? 1 : 0;
         });
+      // Size is time left, the figure each row shows. Both put the biggest
+      // first and break ties on current pressure.
+      case 'size':
+        return tasks.sort((a, b) =>
+          remainingMinutes(b) - remainingMinutes(a) || pAt(b, now) - pAt(a, now));
+      case 'peak':
+        return tasks.sort((a, b) =>
+          b.peakPressure - a.peakPressure || pAt(b, now) - pAt(a, now));
       default: // pressure
         return tasks.sort((a, b) => pAt(b, now) - pAt(a, now));
     }
