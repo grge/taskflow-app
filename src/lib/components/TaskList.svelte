@@ -100,6 +100,14 @@
     );
   })());
 
+  // Most recently completed first, so an accidental completion is at the top
+  // to restore. Any without a completion date go last.
+  let recentlyCompleted = $derived(
+    [...completedTasks.value].sort((a, b) =>
+      (b.completedAt ? +new Date(b.completedAt) : -Infinity) -
+      (a.completedAt ? +new Date(a.completedAt) : -Infinity) || 0)
+  );
+
   let totalCount       = $derived(activeTasks.value.length);
   let unscheduledCount = $derived(activeTasks.value.filter(t => !t.scheduledBlocks.length).length);
 
@@ -165,7 +173,7 @@
       </button>
 
       {#if showCompleted}
-        {#each completedTasks.value as task (task.id)}
+        {#each recentlyCompleted as task (task.id)}
           <div class="completed-row">
             <span class="completed-check">✓</span>
             <span class="completed-desc">{task.description}</span>

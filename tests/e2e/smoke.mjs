@@ -145,6 +145,13 @@ test('sort by size and by peak pressure', async () => {
   assertEqual(await order(), ['Bravo', 'Delta', 'Charlie', 'Alpha'], 'size starts largest first');
 });
 
+test('completed list shows the most recently completed first', async () => {
+  const done = (name, at) => task(name, { isCompleted: true, completedAt: at && new Date(+NOW - at).toISOString() });
+  const { page } = await open({ tasks: [done('Old', 3 * DAY), done('Undated', null), done('Recent', DAY / 24), done('Middle', DAY)] });
+  await page.locator('.completed-toggle').click();
+  assertEqual(await page.locator('.completed-desc').allTextContents(), ['Recent', 'Middle', 'Old', 'Undated'], 'completed order');
+});
+
 test('reversing Scheduled keeps unscheduled tasks last', async () => {
   const a = task('Alpha'), b = task('Bravo'), c = task('Charlie');
   a.scheduledBlocks = [block(a, TODAY, 600)];
