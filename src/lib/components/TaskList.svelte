@@ -161,7 +161,7 @@
         class="completed-toggle"
         onclick={() => showCompleted = !showCompleted}
       >
-        {showCompleted ? '▾' : '▸'} {completedTasks.value.length} completed today
+        {showCompleted ? '▾' : '▸'} {completedTasks.value.length} completed
       </button>
 
       {#if showCompleted}
