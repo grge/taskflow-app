@@ -8,14 +8,27 @@
 
   let showCompleted = $state(false);
   let sortKey       = $state('pressure');
+  let sortAsc       = $state(false);
 
+  // Each mode opens in the direction that's usually wanted; clicking the active
+  // pill again reverses it. `asc` and `desc` say what each direction means.
   const SORT_OPTIONS = [
-    { key: 'pressure',  label: 'Pressure'  },
-    { key: 'name',      label: 'Name'      },
-    { key: 'scheduled', label: 'Scheduled' },
-    { key: 'size',      label: 'Size'      },
-    { key: 'peak',      label: 'Peak'      },
+    { key: 'pressure',  label: 'Pressure',  asc: false, words: { asc: 'lowest first',   desc: 'highest first' } },
+    { key: 'name',      label: 'Name',      asc: true,  words: { asc: 'A to Z',         desc: 'Z to A' } },
+    { key: 'scheduled', label: 'Scheduled', asc: true,  words: { asc: 'soonest first',  desc: 'latest first' } },
+    { key: 'size',      label: 'Size',      asc: false, words: { asc: 'smallest first', desc: 'largest first' } },
+    { key: 'peak',      label: 'Peak',      asc: false, words: { asc: 'lowest first',   desc: 'highest first' } },
   ];
+
+  function pickSort(opt) {
+    if (sortKey === opt.key) sortAsc = !sortAsc;
+    else { sortKey = opt.key; sortAsc = opt.asc; }
+  }
+
+  function sortTitle(opt) {
+    if (sortKey !== opt.key) return `Sort by ${opt.label.toLowerCase()}, ${opt.words[opt.asc ? 'asc' : 'desc']}`;
+    return `${opt.label}, ${opt.words[sortAsc ? 'asc' : 'desc']}. Click to reverse`;
+  }
 
   function firstBlockStart(task) {
     if (!task.scheduledBlocks.length) return Infinity;
@@ -25,32 +38,33 @@
     return first.date + String(first.startMinutes).padStart(4, '0');
   }
 
+  // Ascending comparators. Size is time left, the figure each row shows.
+  const ASCENDING = {
+    pressure:  (a, b, p) => p.get(a) - p.get(b),
+    name:      (a, b) => a.description.localeCompare(b.description),
+    scheduled: (a, b) => {
+      const as_ = firstBlockStart(a), bs_ = firstBlockStart(b);
+      return as_ < bs_ ? -1 : as_ > bs_ ? 1 : 0;
+    },
+    size:      (a, b) => remainingMinutes(a) - remainingMinutes(b),
+    peak:      (a, b) => a.peakPressure - b.peakPressure,
+  };
+
   let liveSorted = $derived((() => {
-    const now   = clock.minute;
-    const tasks = [...activeTasks.value];
-    switch (sortKey) {
-      case 'name':
-        return tasks.sort((a, b) => a.description.localeCompare(b.description));
-      case 'scheduled':
-        return tasks.sort((a, b) => {
-          const as_ = firstBlockStart(a);
-          const bs_ = firstBlockStart(b);
-          if (as_ === Infinity && bs_ === Infinity) return 0;
-          if (as_ === Infinity) return 1;
-          if (bs_ === Infinity) return -1;
-          return as_ < bs_ ? -1 : as_ > bs_ ? 1 : 0;
-        });
-      // Size is time left, the figure each row shows. Both put the biggest
-      // first and break ties on current pressure.
-      case 'size':
-        return tasks.sort((a, b) =>
-          remainingMinutes(b) - remainingMinutes(a) || pAt(b, now) - pAt(a, now));
-      case 'peak':
-        return tasks.sort((a, b) =>
-          b.peakPressure - a.peakPressure || pAt(b, now) - pAt(a, now));
-      default: // pressure
-        return tasks.sort((a, b) => pAt(b, now) - pAt(a, now));
-    }
+    const now      = clock.minute;
+    const tasks    = [...activeTasks.value];
+    const pressure = new Map(tasks.map(t => [t, pAt(t, now)]));
+    const compare  = ASCENDING[sortKey];
+    const sign     = sortAsc ? 1 : -1;
+    return tasks.sort((a, b) => {
+      // Unscheduled tasks stay at the bottom whichever way Scheduled runs.
+      if (sortKey === 'scheduled') {
+        const au = !a.scheduledBlocks.length, bu = !b.scheduledBlocks.length;
+        if (au !== bu) return au ? 1 : -1;
+      }
+      // Only the main order reverses; ties always go to the more pressing task.
+      return sign * compare(a, b, pressure) || pressure.get(b) - pressure.get(a);
+    });
   })());
 
   // Pressure sorting reranks the list whenever pressure changes — including on
@@ -64,7 +78,7 @@
   let frozenKey   = null;
 
   $effect(() => {
-    const key      = sortKey;
+    const key      = `${sortKey}:${sortAsc}`;
     const expanded = expandedTaskId.value !== null;
     const ids      = liveSorted.map(t => t.id);
     // Re-snapshot when nothing is open, and when the user explicitly picks a
@@ -123,8 +137,10 @@
       <button
         class="sort-pill"
         class:active={sortKey === opt.key}
-        onclick={() => sortKey = opt.key}
-      >{opt.label}</button>
+        title={sortTitle(opt)}
+        aria-label={sortTitle(opt)}
+        onclick={() => pickSort(opt)}
+      >{opt.label}{#if sortKey === opt.key}<span class="sort-dir" aria-hidden="true">{sortAsc ? '↑' : '↓'}</span>{/if}</button>
     {/each}
   </div>
 
@@ -262,6 +278,10 @@
     background: var(--color-text);
     color: var(--color-surface);
     border-color: var(--color-text);
+  }
+
+  .sort-dir {
+    margin-left: 3px;
   }
 
   .task-list-scroll {

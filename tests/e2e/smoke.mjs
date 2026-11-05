@@ -134,6 +134,28 @@ test('sort by size and by peak pressure', async () => {
   assertEqual(await order(), ['Bravo', 'Delta', 'Charlie', 'Alpha'], 'size order');
   await page.locator('.sort-pill', { hasText: 'Peak' }).click();
   assertEqual(await order(), ['Alpha', 'Charlie', 'Delta', 'Bravo'], 'peak order');
+  // A second click reverses the main order, but ties still go to the more
+  // pressing task, so Charlie stays ahead of Delta.
+  const pill = page.locator('.sort-pill', { hasText: 'Peak' });
+  await pill.click();
+  assertEqual(await order(), ['Bravo', 'Charlie', 'Delta', 'Alpha'], 'peak reversed');
+  assertEqual(await pill.textContent(), 'Peak↑', 'reversed pill shows its direction');
+  // Picking another mode starts it in its own direction again.
+  await page.locator('.sort-pill', { hasText: 'Size' }).click();
+  assertEqual(await order(), ['Bravo', 'Delta', 'Charlie', 'Alpha'], 'size starts largest first');
+});
+
+test('reversing Scheduled keeps unscheduled tasks last', async () => {
+  const a = task('Alpha'), b = task('Bravo'), c = task('Charlie');
+  a.scheduledBlocks = [block(a, TODAY, 600)];
+  c.scheduledBlocks = [block(c, TODAY, 720)];
+  const { page } = await open({ tasks: [a, b, c] });
+  const order = () => page.locator('.task-list-scroll .task-desc').allTextContents();
+  const pill = page.locator('.sort-pill', { hasText: 'Scheduled' });
+  await pill.click();
+  assertEqual(await order(), ['Alpha', 'Charlie', 'Bravo'], 'soonest first');
+  await pill.click();
+  assertEqual(await order(), ['Charlie', 'Alpha', 'Bravo'], 'latest first, unscheduled last');
 });
 
 test('rendering a task leaves its deadline alone', async () => {
