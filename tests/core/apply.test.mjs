@@ -54,6 +54,8 @@ const state = (o = {}) => ({
 const run = (s, type, args = {}, now = NOW) => apply(s, { type, args }, { now });
 const byId = (s, id) => s.tasks.find(t => t.id === id);
 const placed = t => t.scheduledBlocks.map(b => [b.date, b.startMinutes, b.durationMinutes]);
+// What the app does on a click: plan on this state, then send the blocks.
+const auto = (s, now = NOW) => run(s, 'schedule.auto', { blocks: planAutoSchedule(s, now) }, now);
 
 // ─── contract ────────────────────────────────────────────────────────────────
 
@@ -92,7 +94,7 @@ test('never reads the clock', () => {
     let s = state({ tasks: [task('A'), task('B', { peakPressure: 0.9 })] });
     s = run(s, 'task.add', { id: 'n', description: 'New', onset: NOW, peak: new RealDate(+NOW + DAY), peakPressure: 0.5, estimatedMinutes: 30 }).state;
     s = run(s, 'schedule.next', { id: 'n' }).state;
-    s = run(s, 'schedule.auto').state;
+    s = auto(s).state;
     s = run(s, 'timer.start', { id: 't1' }).state;
     s = run(s, 'task.setRemaining', { id: 't1', minutes: 45 }).state;
     s = run(s, 'timer.pause', { id: 't1' }).state;
@@ -115,7 +117,7 @@ test('never mutates its input, Dates included', () => {
   const times = s.tasks.map(t => [+t.onset, +t.peak, +t.createdAt, +t.lastModifiedAt]);
   for (const [type, args] of [
     ['task.edit', { id: a.id, patch: { estimatedMinutes: 90, peak: new Date(+NOW + DAY) } }],
-    ['schedule.next', { id: 't2' }], ['schedule.auto', {}], ['schedule.clear', {}],
+    ['schedule.next', { id: 't2' }], ['schedule.auto', { blocks: planAutoSchedule(s, NOW) }], ['schedule.clear', {}],
     ['task.complete', { id: a.id }], ['hours.update', { schedule: { ...DEFAULT_WORK_SCHEDULE, bufferMinutes: 0 } }],
     ['schedule.outlookMove', { id: a.id, sourceDate: TODAY, targetDate: FRIDAY, insertBeforeId: null }]
   ]) {
@@ -132,7 +134,7 @@ test('is deterministic: the same operation on the same state gives the same stat
   a.scheduledBlocks = [blk(a, TOMORROW, 540)];
   const s = state({ tasks: [a, b, c] });
   for (const [type, args] of [
-    ['schedule.next', { id: c.id }], ['schedule.auto', {}],
+    ['schedule.next', { id: c.id }], ['schedule.auto', { blocks: planAutoSchedule(s, NOW) }],
     ['schedule.outlookMove', { id: b.id, sourceDate: null, targetDate: TOMORROW, insertBeforeId: a.id }]
   ]) {
     const first = run(s, type, args).state;
@@ -315,14 +317,12 @@ test('schedule.next won\'t split onto a day with no free time', () => {
 });
 
 // ─── schedule.auto / clear ───────────────────────────────────────────────────
-// Without `blocks`, as every operation in an existing log, schedule.auto runs
-// the scheduler itself; the first two tests cover that path.
 
 test('schedule.auto orders by pressure and skips locked tasks', () => {
   const hot = task('Hot', { peakPressure: 0.9 });
   const locked = task('Locked', { isLocked: true });
   const mild = task('Mild', { peakPressure: 0.3, estimatedMinutes: 30 });
-  const s = run(state({ tasks: [hot, locked, mild] }), 'schedule.auto').state;
+  const s = auto(state({ tasks: [hot, locked, mild] })).state;
   assert.deepEqual(placed(byId(s, hot.id)), [[TODAY, 600, 60]]);
   assert.deepEqual(placed(byId(s, locked.id)), []);
   assert.deepEqual(placed(byId(s, mild.id)), [[TODAY, 675, 30]]);
@@ -331,18 +331,12 @@ test('schedule.auto orders by pressure and skips locked tasks', () => {
 test('schedule.auto counts a running timer\'s unflushed time', () => {
   const a = task('A', { estimatedMinutes: 60 });
   const timer = { taskId: a.id, startedAt: local(28, 9, 30), baseSeconds: 0 };
-  const s = run(state({ tasks: [a], activeTimer: timer }), 'schedule.auto').state;
+  const s = auto(state({ tasks: [a], activeTimer: timer })).state;
   assert.deepEqual(placed(byId(s, a.id)), [[TODAY, 600, 30]], '30 of 60 min already worked');
 });
 
-test('schedule.auto with the planned blocks gives what it computes without them', () => {
-  const hot = task('Hot', { peakPressure: 0.9 }), locked = task('Locked', { isLocked: true });
-  const long = task('Long', { estimatedMinutes: 600 }), done = task('Done', { isCompleted: true });
-  const a = task('A');
-  a.scheduledBlocks = [blk(a, TODAY, 780)];
-  const s = state({ tasks: [hot, locked, long, done, a] });
-  const blocks = JSON.parse(JSON.stringify(planAutoSchedule(s, NOW)));
-  assert.deepEqual(run(s, 'schedule.auto', { blocks }).state, run(s, 'schedule.auto').state);
+test('schedule.auto without blocks is refused: an older app sent it', () => {
+  assert.throws(() => run(state({ tasks: [task('A')] }), 'schedule.auto'), /out of date/);
 });
 
 test('schedule.auto places the blocks it carries, without rescheduling', () => {

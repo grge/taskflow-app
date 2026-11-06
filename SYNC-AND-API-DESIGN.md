@@ -108,7 +108,7 @@ The operation catalogue, grouped:
 
 Each maps one to one onto an existing store function (except `data.import`, added in phase 2), so the refactor moves code rather than redesigning it. `schedule.place` is what a drag commits; `schedule.next` is the ✦ button.
 
-`schedule.auto` carries its result. The device that issues it plans the blocks (`planAutoSchedule`) and sends them, so the scheduler runs once, there, and every other device and the backend only place them: replaying a computed auto-schedule cost seconds per operation, and catch-up replays them all. It places blocks only on tasks still active, unlocked and unscheduled, so one scheduled or finished elsewhere meanwhile keeps what it has. An operation without `blocks` (every one logged before 2026-11-07) still runs the scheduler where it is applied.
+`schedule.auto` carries its result. The device that issues it plans the blocks (`planAutoSchedule`) and sends them, so the scheduler runs once, there, and every other device and the backend only place them: replaying a computed auto-schedule cost seconds per operation, and catch-up replays them all. It places blocks only on tasks still active, unlocked and unscheduled, so one scheduled or finished elsewhere meanwhile keeps what it has. An operation without `blocks` (every one logged before 2026-11-07, or one from an out-of-date app) is refused rather than computed: those schedules aren't replayed, which nothing needs.
 
 ## Sync protocol
 

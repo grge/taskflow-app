@@ -199,13 +199,13 @@ const handlers = {
   // operation on another device or the backend only places them. Placing is
   // absolute, like schedule.place, but only for tasks the scheduler would have
   // taken: active, unlocked and unscheduled. A task scheduled, completed or
-  // locked elsewhere in the meantime keeps what it has. Without blocks (every
-  // operation before they were carried, and any older app still sending one)
-  // the scheduler runs here.
+  // locked elsewhere in the meantime keeps what it has. Operations logged
+  // before blocks were carried, or sent by an older app, have none and are
+  // refused: they aren't replayed.
   'schedule.auto'(state, { blocks }, { now }) {
-    const planned = blocks ?? planAutoSchedule(state, now);
+    if (!Array.isArray(blocks)) throw new Error('schedule.auto needs the planned blocks; this app is out of date, so reload it.');
     const byTask = new Map();
-    for (const b of planned) {
+    for (const b of blocks) {
       if (!byTask.has(b.taskId)) byTask.set(b.taskId, []);
       byTask.get(b.taskId).push(b);
     }

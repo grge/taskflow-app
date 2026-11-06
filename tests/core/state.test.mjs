@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { apply } from '../../src/core/apply.js';
+import { apply, planAutoSchedule } from '../../src/core/apply.js';
 import { emptyState, reviveState, serializeState } from '../../src/core/state.js';
 import { DEFAULT_WORK_SCHEDULE } from '../../src/lib/constants.js';
 
@@ -13,7 +13,7 @@ function sampleState() {
   let s = emptyState();
   s = run(s, 'task.add', { id: 'a', description: 'Write report', onset: new Date(2026, 9, 27), peak: new Date(2026, 9, 30, 17), peakPressure: 0.7, estimatedMinutes: 90 });
   s = run(s, 'task.add', { id: 'b', description: 'Ünïcödé "quotes"', onset: new Date(2026, 9, 28), peak: new Date(2026, 10, 2), peakPressure: 0.4, estimatedMinutes: 30 });
-  s = run(s, 'schedule.auto', {});
+  s = run(s, 'schedule.auto', { blocks: planAutoSchedule(s, NOW) });
   s = run(s, 'task.setLock', { id: 'b', locked: true });
   s = run(s, 'block.add', { block: { id: 'f', date: '2026-10-29', startMinutes: 720, durationMinutes: 60, label: 'Lunch' } });
   s = run(s, 'timer.start', { id: 'a' });
