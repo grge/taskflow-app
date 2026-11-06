@@ -3,6 +3,7 @@
 // app's long-standing store API, so components did not need to change.
 
 import { data, dispatch, initPersistence } from './data.svelte.js';
+import { planAutoSchedule } from '../core/apply.js';
 import {
   liveSeconds as liveSecondsAt,
   liveElapsedFor as liveElapsedAt,
@@ -84,8 +85,9 @@ export function restoreBlocks(taskId, blocks) {
   dispatch('schedule.place', { id: taskId, blocks });
 }
 
+// Planned here, once; the operation carries the blocks (see schedule.auto).
 export function autoScheduleAll() {
-  dispatch('schedule.auto');
+  dispatch('schedule.auto', { blocks: planAutoSchedule(data, new Date()) });
 }
 
 export function clearSchedule() {

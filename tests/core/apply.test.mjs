@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { apply, OP_TYPES } from '../../src/core/apply.js';
+import { apply, OP_TYPES, planAutoSchedule } from '../../src/core/apply.js';
 import { DEFAULT_WORK_SCHEDULE } from '../../src/lib/constants.js';
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
@@ -315,6 +315,8 @@ test('schedule.next won\'t split onto a day with no free time', () => {
 });
 
 // ─── schedule.auto / clear ───────────────────────────────────────────────────
+// Without `blocks`, as every operation in an existing log, schedule.auto runs
+// the scheduler itself; the first two tests cover that path.
 
 test('schedule.auto orders by pressure and skips locked tasks', () => {
   const hot = task('Hot', { peakPressure: 0.9 });
@@ -331,6 +333,40 @@ test('schedule.auto counts a running timer\'s unflushed time', () => {
   const timer = { taskId: a.id, startedAt: local(28, 9, 30), baseSeconds: 0 };
   const s = run(state({ tasks: [a], activeTimer: timer }), 'schedule.auto').state;
   assert.deepEqual(placed(byId(s, a.id)), [[TODAY, 600, 30]], '30 of 60 min already worked');
+});
+
+test('schedule.auto with the planned blocks gives what it computes without them', () => {
+  const hot = task('Hot', { peakPressure: 0.9 }), locked = task('Locked', { isLocked: true });
+  const long = task('Long', { estimatedMinutes: 600 }), done = task('Done', { isCompleted: true });
+  const a = task('A');
+  a.scheduledBlocks = [blk(a, TODAY, 780)];
+  const s = state({ tasks: [hot, locked, long, done, a] });
+  const blocks = JSON.parse(JSON.stringify(planAutoSchedule(s, NOW)));
+  assert.deepEqual(run(s, 'schedule.auto', { blocks }).state, run(s, 'schedule.auto').state);
+});
+
+test('schedule.auto places the blocks it carries, without rescheduling', () => {
+  const a = task('A');
+  const s = run(state({ tasks: [a] }), 'schedule.auto', { blocks: [blk(a, FRIDAY, 900)] }).state;
+  assert.deepEqual(placed(byId(s, a.id)), [[FRIDAY, 900, 60]], 'not the earliest free slot, which planning would pick');
+});
+
+test('schedule.auto leaves tasks scheduled, completed, locked or deleted since it was planned', () => {
+  const free = task('Free'), placedSince = task('Placed'), done = task('Done'), locked = task('Locked'), gone = task('Gone');
+  const s = state({ tasks: [free, placedSince, done, locked, gone] });
+  const blocks = planAutoSchedule(s, NOW);
+  const later = state({ tasks: [
+    free,
+    { ...placedSince, scheduledBlocks: [blk(placedSince, MONDAY, 540)] },
+    { ...done, isCompleted: true },
+    { ...locked, isLocked: true },
+    { ...gone, isDeleted: true }
+  ] });
+  const next = run(later, 'schedule.auto', { blocks }).state;
+  assert.equal(placed(byId(next, free.id)).length, 1);
+  assert.deepEqual(placed(byId(next, placedSince.id)), [[MONDAY, 540, 60]]);
+  for (const t of [done, locked, gone]) assert.deepEqual(placed(byId(next, t.id)), [], t.description);
+  assert.equal(run(later, 'schedule.auto', { blocks: blocks.filter(b => b.taskId !== free.id) }).state, later, 'nothing to place is a no-op');
 });
 
 test('schedule.clear keeps locked tasks', () => {

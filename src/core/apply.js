@@ -194,21 +194,24 @@ const handlers = {
     return { state: next, result: { ok: true, blocks, previousBlocks } };
   },
 
-  // autoScheduleAll
-  'schedule.auto'(state, _args, { now }) {
-    const blocks = autoSchedule(
-      state.tasks.map(t => withLiveElapsed(state, t, now)), state.workSchedule, state.fixedBlocks, now
-    );
-    if (!blocks.length) return unchanged(state);
+  // autoScheduleAll. Carries the blocks the issuing device planned
+  // (planAutoSchedule), so the scheduler runs once, there, and replaying the
+  // operation on another device or the backend only places them. Placing is
+  // absolute, like schedule.place, but only for tasks the scheduler would have
+  // taken: active, unlocked and unscheduled. A task scheduled, completed or
+  // locked elsewhere in the meantime keeps what it has. Without blocks (every
+  // operation before they were carried, and any older app still sending one)
+  // the scheduler runs here.
+  'schedule.auto'(state, { blocks }, { now }) {
+    const planned = blocks ?? planAutoSchedule(state, now);
     const byTask = new Map();
-    for (const b of blocks) {
+    for (const b of planned) {
       if (!byTask.has(b.taskId)) byTask.set(b.taskId, []);
       byTask.get(b.taskId).push(b);
     }
-    return withTasks(state, state.tasks.map(t => {
-      const tb = byTask.get(t.id);
-      return tb ? placeBlockOnTask(t, tb, now) : t;
-    }));
+    const takes = t => byTask.has(t.id) && isActive(t) && !t.isLocked && !t.scheduledBlocks.length;
+    if (!state.tasks.some(takes)) return unchanged(state);
+    return withTasks(state, state.tasks.map(t => (takes(t) ? placeBlockOnTask(t, byTask.get(t.id), now) : t)));
   },
 
   // clearSchedule. Locked tasks keep their blocks.
@@ -386,6 +389,14 @@ const handlers = {
 };
 
 export const OP_TYPES = Object.freeze(Object.keys(handlers));
+
+// The blocks schedule.auto would place on `state` at `now`: what a device
+// computes once and sends as the operation's `blocks`.
+export function planAutoSchedule(state, now) {
+  return autoSchedule(
+    state.tasks.map(t => withLiveElapsed(state, t, now)), state.workSchedule, state.fixedBlocks, now
+  );
+}
 
 export function apply(state, op, context) {
   const handler = handlers[op.type];
