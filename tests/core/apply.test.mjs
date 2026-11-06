@@ -307,6 +307,13 @@ test('schedule.next splits across days in local time, over a weekend and a DST c
   assert.deepEqual(placed(byId(s, a.id)), [[FRIDAY, 780, 240], [MONDAY, 540, 120]]);
 });
 
+test('schedule.next won\'t split onto a day with no free time', () => {
+  const a = task('Long', { estimatedMinutes: 600 });
+  const allDay = { id: 'f1', date: TOMORROW, startMinutes: 0, durationMinutes: 24 * 60 };
+  const s = run(state({ tasks: [a], fixedBlocks: [allDay] }), 'schedule.next', { id: a.id }).state;
+  assert.deepEqual(placed(byId(s, a.id)), [[FRIDAY, 540, 480], [MONDAY, 540, 120]]);
+});
+
 // ─── schedule.auto / clear ───────────────────────────────────────────────────
 
 test('schedule.auto orders by pressure and skips locked tasks', () => {

@@ -1,5 +1,5 @@
 import { accumulatedPressure } from './envelope.js';
-import { advanceWork, getVisibleWorkDays, parseLocalDate } from './calendar.js';
+import { advanceWork, getVisibleWorkDays, parseLocalDate, toISODate } from './calendar.js';
 import { splitTaskAcrossDays, computeFreeIntervals } from './scheduling.js';
 import { schedulableMinutes } from './tasks.js';
 import { SCHEDULING_HORIZON_DAYS } from './constants.js';
@@ -17,71 +17,115 @@ import { SCHEDULING_HORIZON_DAYS } from './constants.js';
 // passed in rather than read from the clock, so a device and a backend applying
 // the same operation place it identically.
 export function packSequence(sequence, schedule, manualBlocks, fixedBlocks, now) {
-  const allBlocking = [...manualBlocks, ...fixedBlocks];
+  return makePacker(schedule, manualBlocks, fixedBlocks, now).pack(sequence);
+}
+
+// packSequence for many sequences over the same blocking blocks, as the local
+// search packs thousands. The blocking blocks don't change while a sequence is
+// packed (placed tasks advance the cursor rather than carving the window), so
+// the free intervals are computed once, from `now`, and each task takes the
+// ones at or after the cursor. That gives the same intervals as computing them
+// afresh from the cursor: on the cursor's day they are clipped to start there.
+// Local times are memoised by day and minute, as the same few recur in every
+// packing; `cost` is totalCost using them.
+function makePacker(schedule, manualBlocks, fixedBlocks, now) {
   const bufferMinutes = schedule.bufferMinutes ?? 0;
   const visibleDays = getVisibleWorkDays(schedule, SCHEDULING_HORIZON_DAYS, now);
-  if (!visibleDays.length) return [];
+  if (!visibleDays.length) return { pack: () => [], cost: totalCost, empty: true };
+  const allIntervals = computeFreeIntervals(visibleDays, [...manualBlocks, ...fixedBlocks], new Date(now), bufferMinutes);
+  const byDate = new Map();
+  for (const iv of allIntervals) {
+    if (!byDate.has(iv.date)) byDate.set(iv.date, []);
+    byDate.get(iv.date).push(iv);
+  }
+  // The visible days from each one on, so splitTaskAcrossDays finds its start
+  // day first.
+  const daysFrom = new Map(visibleDays.map((d, i) => [toISODate(d.date), visibleDays.slice(i)]));
+  // A block can't lie in an interval that clipping drops: it would end at or
+  // before the cursor, and every block starts at or after it.
+  const fitsFree = b => (byDate.get(b.date) ?? []).some(iv =>
+    iv.startMinutes <= b.startMinutes && iv.endMinutes >= b.startMinutes + b.durationMinutes
+  );
 
-  const result = [];
-  let cursorDate = new Date(now);
+  const times = new Map();
+  const localTime = (date, minutes) => {
+    const key = `${date}+${minutes}`;
+    let t = times.get(key);
+    if (!t) {
+      const d = parseLocalDate(date);
+      d.setMinutes(minutes);
+      t = { ms: d.getTime(), date: toISODate(d), minutes: d.getHours() * 60 + d.getMinutes() };
+      times.set(key, t);
+    }
+    return t;
+  };
 
-  for (let taskIndex = 0; taskIndex < sequence.length; taskIndex++) {
-    const task = sequence[taskIndex];
-    const isLast = taskIndex === sequence.length - 1;
-    const intervals = computeFreeIntervals(visibleDays, allBlocking, cursorDate, bufferMinutes);
+  // Place one task at the cursor (`from`, with `k` the first interval not on a
+  // day before it): its blocks and the cursor after them, or null if it fits
+  // nowhere, in which case the whole sequence doesn't fit.
+  const place = (task, from, k, isLast) => {
+    while (k < allIntervals.length && allIntervals[k].date < from.date) k++;
 
     // We try each interval's start in order. splitTaskAcrossDays handles
     // multi-day splits at end-of-day; we additionally check that all blocks
     // fit within free intervals (i.e. don't cross manual block exclusion zones).
-    let placed = false;
+    for (let i = k; i < allIntervals.length; i++) {
+      const iv = allIntervals[i];
+      const startMinutes = iv.date === from.date ? Math.max(iv.startMinutes, from.minutes) : iv.startMinutes;
+      if (startMinutes >= iv.endMinutes) continue;
 
-    for (let i = 0; i < intervals.length; i++) {
-      const iv = intervals[i];
       const blocks = splitTaskAcrossDays(
-        task.id, iv.date, iv.startMinutes, schedulableMinutes(task), visibleDays
+        task.id, iv.date, startMinutes, schedulableMinutes(task), daysFrom.get(iv.date)
       );
       if (blocks === null) return null; // doesn't fit in window at all
 
-      // Check every block falls within a free interval.
-      const fits = blocks.every(b =>
-        intervals.some(fiv =>
-          fiv.date === b.date &&
-          fiv.startMinutes <= b.startMinutes &&
-          fiv.endMinutes >= b.startMinutes + b.durationMinutes
-        )
-      );
-
-      if (fits) {
-        result.push(...blocks);
+      if (blocks.every(fitsFree)) {
         // Advance cursor to end of last placed block, plus inter-task buffer
         // (skip buffer after the last task).
         const last = blocks[blocks.length - 1];
-        cursorDate = parseLocalDate(last.date);
-        cursorDate.setMinutes(last.startMinutes + last.durationMinutes + (isLast ? 0 : bufferMinutes));
-        placed = true;
-        break;
+        return { blocks, from: localTime(last.date, last.startMinutes + last.durationMinutes + (isLast ? 0 : bufferMinutes)), k };
       }
     }
+    return null; // no gap large enough for this task
+  };
 
-    if (!placed) return null; // no gap large enough for this task
-  }
+  const start = { from: localTime(toISODate(now), now.getHours() * 60 + now.getMinutes()), k: 0 };
 
-  return result;
+  const pack = sequence => {
+    const result = [];
+    let at = start;
+    for (let i = 0; i < sequence.length; i++) {
+      at = place(sequence[i], at.from, at.k, i === sequence.length - 1);
+      if (!at) return null;
+      result.push(...at.blocks);
+    }
+    return result;
+  };
+
+  const completion = b => localTime(b.date, b.startMinutes + b.durationMinutes).ms;
+  const cost = (blocks, tasks) => totalCost(blocks, tasks, completion);
+  return { pack, cost, place, start, completion };
 }
 
 // ─── totalCost ───────────────────────────────────────────────────────────────
 
-export function totalCost(blocks, tasks) {
+const endOf = b => {
+  const t = parseLocalDate(b.date);
+  t.setMinutes(b.startMinutes + b.durationMinutes);
+  return t;
+};
+
+export function totalCost(blocks, tasks, completionOf = endOf) {
+  // Each task's last part: the highest partIndex, the first such on a tie.
+  const last = new Map();
+  for (const b of blocks) {
+    const seen = last.get(b.taskId);
+    if (!seen || (b.partIndex ?? 1) > (seen.partIndex ?? 1)) last.set(b.taskId, b);
+  }
   let cost = 0;
   for (const task of tasks) {
-    const taskBlocks = blocks.filter(b => b.taskId === task.id);
-    if (!taskBlocks.length) continue;
-    const last = taskBlocks.reduce((a, b) =>
-      (b.partIndex ?? 1) > (a.partIndex ?? 1) ? b : a
-    );
-    const completionTime = parseLocalDate(last.date);
-    completionTime.setMinutes(last.startMinutes + last.durationMinutes);
-    cost += accumulatedPressure(task, completionTime);
+    const b = last.get(task.id);
+    if (b) cost += accumulatedPressure(task, completionOf(b));
   }
   return cost;
 }
@@ -107,6 +151,8 @@ export function autoSchedule(allTasks, schedule, fixedBlocks, now) {
     .filter(t => !t.isCompleted && !t.isDeleted && !t.isLocked && t.scheduledBlocks.length === 0);
 
   if (!unscheduled.length) return [];
+  const packer = makePacker(schedule, manualBlocks, fixedBlocks, now);
+  const { pack, cost: costOf } = packer;
 
   // ── Phase 1: greedy initial ordering ────────────────────────────────────────
   const sequence = [];
@@ -131,7 +177,7 @@ export function autoSchedule(allTasks, schedule, fixedBlocks, now) {
   }
 
   // ── Phase 2: pack and check window capacity ──────────────────────────────────
-  let blocks = packSequence(sequence, schedule, manualBlocks, fixedBlocks, now);
+  let blocks = pack(sequence);
 
   if (blocks === null) {
     // Some tasks don't fit. Binary-search for the longest prefix that does fit,
@@ -139,22 +185,63 @@ export function autoSchedule(allTasks, schedule, fixedBlocks, now) {
     let lo = 0, hi = sequence.length;
     while (lo < hi) {
       const mid = Math.floor((lo + hi + 1) / 2);
-      if (packSequence(sequence.slice(0, mid), schedule, manualBlocks, fixedBlocks, now) !== null) {
+      if (pack(sequence.slice(0, mid)) !== null) {
         lo = mid;
       } else {
         hi = mid - 1;
       }
     }
-    blocks = lo > 0 ? packSequence(sequence.slice(0, lo), schedule, manualBlocks, fixedBlocks, now) : [];
+    blocks = lo > 0 ? pack(sequence.slice(0, lo)) : [];
   }
 
-  let cost = totalCost(blocks, sequence);
+  let cost = costOf(blocks, sequence);
 
   // ── Phase 3: local search ────────────────────────────────────────────────────
   // Operate only on the schedulable prefix.
   const schedulable = sequence.slice(0, blocks.length > 0
     ? new Set(blocks.map(b => b.taskId)).size
     : 0);
+  if (packer.empty || !schedulable.length) return blocks;
+
+  // The current order's packing, position by position: the cursor before each
+  // task, its blocks, and its cost. A move changes only a stretch of the order;
+  // packing a trial starts at the stretch, and once the cursor after it meets
+  // the current one, the rest packs as it does now, so its blocks and costs are
+  // reused. Costs are still added in order, so totals match a full repack.
+  const layout = seq => {
+    const L = { at: [], blocks: [], cost: [] };
+    let at = packer.start;
+    for (let p = 0; p < seq.length; p++) {
+      L.at.push(at);
+      at = packer.place(seq[p], at.from, at.k, p === seq.length - 1);
+      L.blocks.push(at.blocks);
+      L.cost.push(accumulatedPressure(seq[p], packer.completion(at.blocks[at.blocks.length - 1])));
+    }
+    return L;
+  };
+  // The cost of `seq`, which differs from the laid-out order only in positions
+  // from..to-1; null if it doesn't fit.
+  const trial = (seq, L, from, to) => {
+    let cost = 0;
+    for (let p = 0; p < from; p++) cost += L.cost[p];
+    let at = L.at[from];
+    for (let p = from; p < seq.length; p++) {
+      if (p >= to && at.from === L.at[p].from) {
+        for (let q = p; q < seq.length; q++) cost += L.cost[q];
+        return cost;
+      }
+      at = packer.place(seq[p], at.from, at.k, p === seq.length - 1);
+      if (!at) return null;
+      cost += accumulatedPressure(seq[p], packer.completion(at.blocks[at.blocks.length - 1]));
+    }
+    return cost;
+  };
+
+  let L = layout(schedulable);
+  const accept = () => {
+    L = layout(schedulable);
+    blocks = L.blocks.flat();
+  };
 
   let improved = true;
   while (improved) {
@@ -163,15 +250,12 @@ export function autoSchedule(allTasks, schedule, fixedBlocks, now) {
     // Phase A: adjacent swaps
     for (let i = 0; i < schedulable.length - 1; i++) {
       [schedulable[i], schedulable[i + 1]] = [schedulable[i + 1], schedulable[i]];
-      const newBlocks = packSequence(schedulable, schedule, manualBlocks, fixedBlocks, now);
-      if (newBlocks !== null) {
-        const newCost = totalCost(newBlocks, schedulable);
-        if (newCost < cost) {
-          blocks = newBlocks;
-          cost = newCost;
-          improved = true;
-          break;
-        }
+      const newCost = trial(schedulable, L, i, i + 2);
+      if (newCost !== null && newCost < cost) {
+        accept();
+        cost = newCost;
+        improved = true;
+        break;
       }
       [schedulable[i], schedulable[i + 1]] = [schedulable[i + 1], schedulable[i]]; // revert
     }
@@ -186,20 +270,17 @@ export function autoSchedule(allTasks, schedule, fixedBlocks, now) {
 
       for (let j = 0; j <= schedulable.length; j++) {
         schedulable.splice(j, 0, task);
-        const newBlocks = packSequence(schedulable, schedule, manualBlocks, fixedBlocks, now);
-        if (newBlocks !== null) {
-          const newCost = totalCost(newBlocks, schedulable);
-          if (newCost < bestCost) {
-            bestPos = j;
-            bestCost = newCost;
-          }
+        const newCost = trial(schedulable, L, Math.min(i, j), Math.max(i, j) + 1);
+        if (newCost !== null && newCost < bestCost) {
+          bestPos = j;
+          bestCost = newCost;
         }
         schedulable.splice(j, 1);
       }
 
       schedulable.splice(bestPos, 0, task);
       if (bestCost < cost) {
-        blocks = packSequence(schedulable, schedule, manualBlocks, fixedBlocks, now);
+        accept();
         cost = bestCost;
         improved = true;
         break;
