@@ -1,6 +1,8 @@
 <script>
+  import { tick } from 'svelte';
   import { activeTasks, completedTasks, restoreTask } from '../../stores/tasks.svelte.js';
-  import { openModal, expandedTaskId } from '../../stores/ui.svelte.js';
+  import { openModal, expandedTaskId, setExpandedTask, activeModal, setPane } from '../../stores/ui.svelte.js';
+  import { parseQuery, matches, highlight } from '../search.js';
   import { pAt, getPressureTier } from '../envelope.js';
   import { clock } from '../../stores/clock.svelte.js';
   import { remainingMinutes } from '../tasks.js';
@@ -108,6 +110,77 @@
       (a.completedAt ? +new Date(a.completedAt) : -Infinity) || 0)
   );
 
+  // ── Search ────────────────────────────────────────────────────────────────
+  // The header turns into a search field in place (the magnifier, or "/" from
+  // anywhere on the Plan tab). The list filters as you type, keeping its sort;
+  // completed tasks that match show too, so one can be found and restored.
+  // ↑/↓ pick a result, Enter opens it, Esc clears and then closes.
+  let searchOpen  = $state(false);
+  let query       = $state('');
+  let selected    = $state(0);
+  let searchInput = $state(null);
+
+  let terms     = $derived(parseQuery(query));
+  let searching = $derived(terms.length > 0);
+
+  let visibleTasks = $derived(searching ? sortedTasks.filter(t => matches(t.description, terms)) : sortedTasks);
+  let visibleCompleted = $derived(searching ? recentlyCompleted.filter(t => matches(t.description, terms)) : recentlyCompleted);
+  let matchCount = $derived(visibleTasks.length + visibleCompleted.length);
+
+  // A new query starts the selection at the top match.
+  $effect(() => { query; selected = 0; });
+
+  async function openSearch() {
+    searchOpen = true;
+    await tick();
+    // In the stacked phone layout the task panel may be the hidden pane.
+    if (searchInput && !searchInput.offsetParent) {
+      setPane('tasks');
+      await tick();
+    }
+    searchInput?.focus();
+    searchInput?.select();
+  }
+
+  function closeSearch() {
+    query = '';
+    searchOpen = false;
+  }
+
+  function onSearchKeydown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (query) query = '';
+      else { closeSearch(); searchInput?.blur(); }
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!visibleTasks.length) return;
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      selected = (selected + step + visibleTasks.length) % visibleTasks.length;
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const task = visibleTasks[selected];
+      if (task && expandedTaskId.value !== task.id) setExpandedTask(task.id);
+    }
+  }
+
+  // An empty search closes when focus leaves it; one with a query stays, so the
+  // filtered list can be worked through.
+  function onSearchBlur() {
+    if (!query.trim()) closeSearch();
+  }
+
+  function isTypingTarget(el) {
+    return el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+  }
+
+  function onWindowKeydown(e) {
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isTypingTarget(e.target) || activeModal.value) return;
+    e.preventDefault();
+    openSearch();
+  }
+
   let totalCount       = $derived(activeTasks.value.length);
   let unscheduledCount = $derived(activeTasks.value.filter(t => !t.scheduledBlocks.length).length);
 
@@ -130,12 +203,52 @@
   }
 </script>
 
+<svelte:window onkeydown={onWindowKeydown} />
+
+{#snippet magnifier()}
+  <svg class="search-icon" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+    <circle cx="7" cy="7" r="4.75" fill="none" stroke="currentColor" stroke-width="1.6" />
+    <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+  </svg>
+{/snippet}
+
+{#snippet marked(text)}{#each highlight(text, terms) as run}{#if run.hit}<mark class="search-hit">{run.text}</mark>{:else}{run.text}{/if}{/each}{/snippet}
+
 <div class="task-list-panel">
   <div class="task-list-header">
-    <div class="task-heading">
-      <span class="task-heading-title">Tasks</span>
-      <span class="task-count">{totalCount} total · {unscheduledCount} unscheduled</span>
-    </div>
+    {#if searchOpen}
+      <div class="search-field">
+        {@render magnifier()}
+        <input
+          bind:this={searchInput}
+          bind:value={query}
+          class="search-input"
+          type="search"
+          placeholder="Search tasks"
+          aria-label="Search tasks"
+          autocomplete="off"
+          spellcheck="false"
+          onkeydown={onSearchKeydown}
+          onblur={onSearchBlur}
+        />
+        {#if searching}
+          <span class="search-count" aria-live="polite">{matchCount === 1 ? '1 match' : `${matchCount} matches`}</span>
+        {/if}
+        <button
+          class="search-close"
+          title="Close search (Esc)"
+          aria-label="Close search"
+          onmousedown={(e) => e.preventDefault()}
+          onclick={closeSearch}
+        >×</button>
+      </div>
+    {:else}
+      <div class="task-heading">
+        <span class="task-heading-title">Tasks</span>
+        <span class="task-count">{totalCount} total · {unscheduledCount} unscheduled</span>
+      </div>
+      <button class="btn-icon search-btn" onclick={openSearch} title="Search tasks (/)" aria-label="Search tasks">{@render magnifier()}</button>
+    {/if}
     <button class="btn-icon add-btn" onclick={() => openModal('add-task')} title="Add task">＋</button>
   </div>
 
@@ -153,30 +266,43 @@
   </div>
 
   <div class="task-list-scroll">
-    {#if sortedTasks.length === 0 && !showCompleted}
+    {#if searching && matchCount === 0}
+      <div class="empty-state search-empty">
+        <p>No tasks match “{query.trim()}”.</p>
+        <button class="btn btn-sm" onclick={() => { query = ''; searchInput?.focus(); }}>Clear search</button>
+      </div>
+    {:else if searching && visibleTasks.length === 0}
+      <p class="search-none-open">No open tasks match.</p>
+    {:else if sortedTasks.length === 0 && !showCompleted}
       <div class="empty-state">
         <p>No tasks yet.</p>
         <p>Click <strong>+ Add Task</strong> to get started.</p>
       </div>
     {:else}
-      {#each sortedTasks as task (task.id)}
-        <TaskRow {task} />
+      {#each visibleTasks as task, i (task.id)}
+        <TaskRow {task} highlight={terms} selected={searching && i === selected} />
       {/each}
     {/if}
 
-    {#if completedTasks.value.length > 0}
+    <!-- While searching, matching completed tasks show without opening the
+         section, so a completed task can be found and restored. -->
+    {#if visibleCompleted.length > 0}
       <button
         class="completed-toggle"
         onclick={() => showCompleted = !showCompleted}
       >
-        {showCompleted ? '▾' : '▸'} {completedTasks.value.length} completed
+        {#if searching}
+          {visibleCompleted.length} completed
+        {:else}
+          {showCompleted ? '▾' : '▸'} {completedTasks.value.length} completed
+        {/if}
       </button>
 
-      {#if showCompleted}
-        {#each recentlyCompleted as task (task.id)}
+      {#if showCompleted || searching}
+        {#each visibleCompleted as task (task.id)}
           <div class="completed-row">
             <span class="completed-check">✓</span>
-            <span class="completed-desc">{task.description}</span>
+            <span class="completed-desc">{@render marked(task.description)}</span>
             <div class="completed-meta">
               {#if task.estimatedMinutes}
                 <span class="est-label">{task.estimatedMinutes}m est</span>
@@ -235,6 +361,85 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* ── Search ── */
+  .search-btn {
+    width: 30px;
+    height: 30px;
+    margin-left: auto;
+    border-radius: var(--radius);
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+  }
+  .search-btn:hover { background: var(--color-surface); color: var(--color-text); }
+
+  .search-icon { display: block; flex-shrink: 0; }
+
+  .search-field {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 4px 0 9px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-card);
+    color: var(--color-text-muted);
+  }
+  .search-field:focus-within { border-color: var(--color-primary); }
+
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    font: inherit;
+    font-size: var(--text-md);
+    color: var(--color-text);
+    padding: 0;
+  }
+  /* The field has its own close button; drop the browser's clear control. */
+  .search-input::-webkit-search-cancel-button { display: none; }
+
+  .search-count {
+    font-size: var(--text-xs);
+    color: var(--color-text-faint);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .search-close {
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--color-text-muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .search-close:hover { background: var(--color-panel); color: var(--color-text); }
+
+  :global(mark.search-hit) {
+    background: color-mix(in srgb, var(--color-accent) 24%, transparent);
+    color: inherit;
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 24%, transparent);
+  }
+
+  .search-empty { padding-top: 28px; }
+  .search-empty p { margin-bottom: 10px; }
+
+  .search-none-open {
+    padding: 14px 14px 6px;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
   }
 
   /* .btn-icon provides the base; override to the larger 30px header size */

@@ -11,8 +11,17 @@
   import EnvelopeEditor from './EnvelopeEditor.svelte';
   import LockIcon from './LockIcon.svelte';
   import { SCHEDULING_HORIZON_DAYS } from '../constants.js';
+  import { highlight as highlightRuns } from '../search.js';
 
-  let { task } = $props();
+  // highlight: the task search's words, marked in the description.
+  // selected: the search result ↑/↓ points at; kept in view.
+  let { task, highlight = [], selected = false } = $props();
+
+  let cardEl = $state(null);
+  let descRuns = $derived(highlightRuns(task.description, highlight));
+  $effect(() => {
+    if (selected) cardEl?.scrollIntoView({ block: 'nearest' });
+  });
 
   let isTimerRunning  = $derived(activeTimer.value?.taskId === task.id);
   let isTimerPaused   = $derived(isTimerRunning && !activeTimer.value?.startedAt);
@@ -131,8 +140,11 @@
 </script>
 
 <div
+  bind:this={cardEl}
   class="task-card"
   class:is-expanded={isExpanded}
+  class:search-selected={selected}
+  class:search-matching={highlight.length > 0}
   class:timer-running={isTimerRunning && !isTimerPaused}
   class:timer-paused={isTimerPaused}
   style={isTimerRunning && !isTimerPaused ? `--spine:${pillColor}` : undefined}
@@ -168,7 +180,7 @@
             title={task.description}
             onclick={(e) => e.stopPropagation()}
             ondblclick={(e) => { e.stopPropagation(); rename.start(task.id, task.description); }}
-          >{task.description}</span>
+          >{#each descRuns as run}{#if run.hit}<mark class="search-hit">{run.text}</mark>{:else}{run.text}{/if}{/each}</span>
         {/if}
         {#if isTimerRunning && !isTimerPaused}
           <span class="status-badge badge-working">● WORKING</span>
@@ -412,6 +424,12 @@
     border-color: var(--color-accent-border);
   }
 
+  /* The search result ↑/↓ and Enter act on. */
+  .task-card.search-selected {
+    border-left-color: var(--color-primary);
+    background: var(--color-panel);
+  }
+
   /* ── Collapsed header ── */
   .task-header {
     display: flex;
@@ -494,6 +512,13 @@
     cursor: default;
     width: fit-content;
     max-width: 100%;
+  }
+
+  /* While searching, wrap instead of truncating, so a match near the end of a
+     long description isn't hidden behind the ellipsis. */
+  .task-card.search-matching .task-desc {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .task-desc:hover {
