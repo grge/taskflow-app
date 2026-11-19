@@ -463,6 +463,71 @@ test('changes survive a reload', async () => {
   assertEqual(await page.locator('.task-block').count(), 1, 'rendered on the timeline');
 });
 
+// ─── search ──────────────────────────────────────────────────────────────────
+
+const visibleTitles = page => page.locator('.task-card .task-desc').allTextContents();
+
+test('search filters as you type, from "/", ignoring case and accents', async () => {
+  const a = task('Write quarterly report'), b = task('Email Zoë about the café'), c = task('Review report draft'), d = task('Fix login bug');
+  const done = task('Report expenses', { isCompleted: true, completedAt: new Date(NOW - DAY).toISOString() });
+  const { page } = await open({ tasks: [a, b, c, d, done] });
+  await page.keyboard.press('/');
+  await page.waitForTimeout(100);
+  assert(await page.evaluate(() => document.activeElement?.classList.contains('search-input')), '"/" focuses the search field');
+
+  await page.keyboard.type('REPORT');
+  await page.waitForTimeout(150);
+  assertEqual((await visibleTitles(page)).sort(), ['Review report draft', 'Write quarterly report'], 'open matches');
+  assertEqual(await page.locator('.completed-row').count(), 1, 'the matching completed task shows without opening the section');
+  assertEqual(await page.locator('.task-card mark.search-hit').allTextContents(), ['report', 'report'], 'matches highlighted');
+  assert((await page.locator('.search-count').textContent()).includes('3 matches'), 'count');
+
+  await page.locator('.search-input').fill('cafe zoe');
+  await page.waitForTimeout(150);
+  assertEqual(await visibleTitles(page), ['Email Zoë about the café'], 'every word, accents ignored');
+
+  await page.locator('.search-input').fill('nothing like this');
+  await page.waitForTimeout(150);
+  assert((await page.locator('.search-empty').textContent()).includes('No tasks match'), 'says nothing matched');
+});
+
+test('search: arrows pick a result, Enter opens it, Esc clears then closes', async () => {
+  const a = task('Alpha report', { peakPressure: 0.9 }), b = task('Bravo report', { peakPressure: 0.5 }), c = task('Charlie');
+  const { page } = await open({ tasks: [a, b, c] });
+  await page.locator('.search-btn').click();
+  await page.keyboard.type('report');
+  await page.waitForTimeout(150);
+  assertEqual(await page.locator('.task-card.search-selected .task-desc').textContent(), 'Alpha report', 'top match selected first');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(250);
+  assertEqual(await page.locator('.task-card.is-expanded').count(), 1, 'one card opened');
+  assert((await page.locator('.task-card.is-expanded').innerText()).includes('Bravo report'), 'the selected one');
+  assertEqual(await page.locator('.search-input').inputValue(), 'report', 'the search stays');
+
+  await page.locator('.search-input').focus();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  assertEqual(await page.locator('.search-input').inputValue(), '', 'first Esc clears');
+  assertEqual(await page.locator('.task-card').count(), 3, 'everything back');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(100);
+  assertEqual(await page.locator('.search-input').count(), 0, 'second Esc closes');
+  assert(await page.locator('.task-heading-title').isVisible(), 'header restored');
+});
+
+test('"/" typed into a field is just a character', async () => {
+  const a = task('Alpha');
+  const { page } = await open({ tasks: [a] });
+  await card(page, 'Alpha').locator('.task-desc').dblclick();
+  await page.keyboard.press('End');
+  await page.keyboard.type('/b');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  assertEqual((await storedTask(page, a.id)).description, 'Alpha/b', 'renamed with the slash');
+  assertEqual(await page.locator('.search-input').count(), 0, 'search did not open');
+});
+
 // ─── export, import and the pending queue ────────────────────────────────────
 
 async function openSettings(page) {
